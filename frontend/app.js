@@ -4,9 +4,11 @@
  * Handles user input, API calls, table rendering, and Chart.js graphs.
  */
 
-// API endpoints
-const API_URL = '/api/data';
-const LOGIN_URL = '/api/login';
+// API endpoints - automatically detect local vs production
+const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+const API_BASE = isLocalDev ? 'http://localhost:8787' : '';
+const API_URL = `${API_BASE}/api/data`;
+const LOGIN_URL = `${API_BASE}/api/login`;
 const TOKEN_STORAGE_KEY = 'solar_planner_token';
 const TOKEN_EXPIRY_KEY = 'solar_planner_token_expiry';
 
@@ -21,6 +23,7 @@ const loginErrorText = document.getElementById('login-error-text');
 const searchForm = document.getElementById('search-form');
 const locationInput = document.getElementById('location-input');
 const submitBtn = document.getElementById('submit-btn');
+const autocompleteDropdown = document.getElementById('autocomplete-dropdown');
 const loadingEl = document.getElementById('loading');
 const errorEl = document.getElementById('error');
 const errorText = document.getElementById('error-text');
@@ -36,7 +39,7 @@ let weatherChart = null;
 let solarChart = null;
 
 // Chart.js default configuration
-Chart.defaults.font.family = "'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+Chart.defaults.font.family = "'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 Chart.defaults.color = '#8DA4BE';
 Chart.defaults.borderColor = 'rgba(141, 164, 190, 0.15)';
 
@@ -147,6 +150,7 @@ function init() {
   showMainApp();
   
   searchForm.addEventListener('submit', handleSubmit);
+  setupAutocomplete();
   
   // Check for location in URL params
   const urlParams = new URLSearchParams(window.location.search);
@@ -175,7 +179,24 @@ function setupLoginForm() {
         body: JSON.stringify({ password })
       });
       
-      const data = await response.json();
+      // Check if response has content before parsing JSON
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('Invalid response from server. Please try again.');
+      }
+      
+      // Check if response body is empty
+      const text = await response.text();
+      if (!text || text.trim() === '') {
+        throw new Error('Empty response from server. Please try again.');
+      }
+      
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (jsonError) {
+        throw new Error('Invalid response from server. Please try again.');
+      }
       
       if (!response.ok || data.error) {
         throw new Error(data.error || 'Login failed');
@@ -248,11 +269,192 @@ function showMainApp() {
   mainApp.classList.remove('hidden');
 }
 
+// Autocomplete state
+let autocompleteSuggestions = [];
+let selectedIndex = -1;
+let autocompleteTimeout = null;
+
+/**
+ * Setup autocomplete functionality
+ */
+function setupAutocomplete() {
+  let isComposing = false; // Track IME composition (for Asian languages)
+
+  locationInput.addEventListener('input', (e) => {
+    if (isComposing) return;
+    const query = e.target.value.trim();
+    
+    // Clear previous timeout
+    if (autocompleteTimeout) {
+      clearTimeout(autocompleteTimeout);
+    }
+    
+    // Hide dropdown if query is too short
+    if (query.length < 2) {
+      hideAutocomplete();
+      return;
+    }
+    
+    // Debounce autocomplete requests
+    autocompleteTimeout = setTimeout(() => {
+      fetchAutocomplete(query);
+    }, 300);
+  });
+
+  // Handle IME composition events
+  locationInput.addEventListener('compositionstart', () => {
+    isComposing = true;
+  });
+  
+  locationInput.addEventListener('compositionend', () => {
+    isComposing = false;
+    const query = locationInput.value.trim();
+    if (query.length >= 2) {
+      fetchAutocomplete(query);
+    }
+  });
+
+  // Handle keyboard navigation
+  locationInput.addEventListener('keydown', (e) => {
+    if (autocompleteDropdown.classList.contains('hidden')) return;
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        selectedIndex = Math.min(selectedIndex + 1, autocompleteSuggestions.length - 1);
+        updateAutocompleteSelection();
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        selectedIndex = Math.max(selectedIndex - 1, -1);
+        updateAutocompleteSelection();
+        break;
+      case 'Enter':
+        if (selectedIndex >= 0 && autocompleteSuggestions[selectedIndex]) {
+          e.preventDefault();
+          selectAutocomplete(autocompleteSuggestions[selectedIndex]);
+        }
+        break;
+      case 'Escape':
+        hideAutocomplete();
+        break;
+    }
+  });
+
+  // Hide dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!locationInput.contains(e.target) && !autocompleteDropdown.contains(e.target)) {
+      hideAutocomplete();
+    }
+  });
+}
+
+/**
+ * Fetch autocomplete suggestions
+ */
+async function fetchAutocomplete(query) {
+  const token = getAuthToken();
+  if (!token) return;
+
+  try {
+    const response = await fetch(`${API_BASE}/api/autocomplete?q=${encodeURIComponent(query)}`, {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        clearAuth();
+        window.location.reload();
+        return;
+      }
+      return;
+    }
+
+    const data = await response.json();
+    autocompleteSuggestions = data.suggestions || [];
+    selectedIndex = -1;
+    renderAutocomplete();
+  } catch (error) {
+    console.error('Autocomplete error:', error);
+    hideAutocomplete();
+  }
+}
+
+/**
+ * Render autocomplete dropdown
+ */
+function renderAutocomplete() {
+  if (autocompleteSuggestions.length === 0) {
+    hideAutocomplete();
+    return;
+  }
+
+  autocompleteDropdown.innerHTML = autocompleteSuggestions
+    .map((suggestion, index) => 
+      `<div class="autocomplete-item" data-index="${index}">${escapeHtml(suggestion.display)}</div>`
+    )
+    .join('');
+
+  // Add click handlers
+  autocompleteDropdown.querySelectorAll('.autocomplete-item').forEach((item, index) => {
+    item.addEventListener('click', () => {
+      selectAutocomplete(autocompleteSuggestions[index]);
+    });
+  });
+
+  autocompleteDropdown.classList.remove('hidden');
+}
+
+/**
+ * Update selected item in autocomplete
+ */
+function updateAutocompleteSelection() {
+  const items = autocompleteDropdown.querySelectorAll('.autocomplete-item');
+  items.forEach((item, index) => {
+    if (index === selectedIndex) {
+      item.classList.add('selected');
+      item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    } else {
+      item.classList.remove('selected');
+    }
+  });
+}
+
+/**
+ * Select an autocomplete suggestion
+ */
+function selectAutocomplete(suggestion) {
+  locationInput.value = suggestion.value;
+  hideAutocomplete();
+  locationInput.focus();
+}
+
+/**
+ * Hide autocomplete dropdown
+ */
+function hideAutocomplete() {
+  autocompleteDropdown.classList.add('hidden');
+  autocompleteSuggestions = [];
+  selectedIndex = -1;
+}
+
+/**
+ * Escape HTML to prevent XSS
+ */
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
 /**
  * Handle form submission
  */
 async function handleSubmit(e) {
   e.preventDefault();
+  hideAutocomplete(); // Hide dropdown on submit
   const location = locationInput.value.trim();
   
   if (!location) {

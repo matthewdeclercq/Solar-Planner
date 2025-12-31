@@ -1,0 +1,11 @@
+{
+  "name": "solar-planner-frontend",
+  "version": "1.0.0",
+  "description": "Solar Planner Frontend",
+  "scripts": {
+    "dev": "npx serve . -l 3000",
+    "start": "npx serve . -l 3000"
+  },
+  "devDependencies": {}
+}
+

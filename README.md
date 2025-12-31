@@ -99,6 +99,22 @@ Note your worker URL (e.g., `https://solar-planner-api.matthew-declercq.workers.
 
 ## Local Development
 
+### Setup Local Environment Variables
+
+Create a `.dev.vars` file in the `worker/` directory with your credentials:
+
+```bash
+cd worker
+```
+
+Create `.dev.vars`:
+```
+SITE_PASSWORD=your-password-here
+VISUAL_CROSSING_API_KEY=your-api-key-here
+```
+
+**Note:** `.dev.vars` is already in `.gitignore` and won't be committed to git.
+
 ### Run Worker
 
 ```bash
@@ -112,10 +128,10 @@ Worker runs at `http://localhost:8787`
 
 ```bash
 cd frontend
-npx serve .
+npm run dev
 ```
 
-Update `API_URL` in `frontend/app.js` to `http://localhost:8787/api/data` for local testing.
+Frontend runs at `http://localhost:3000` and automatically connects to the worker on port 8787.
 
 ## Environment Variables
 
@@ -123,7 +139,14 @@ Update `API_URL` in `frontend/app.js` to `http://localhost:8787/api/data` for lo
 |----------|-------------|----------|
 | `VISUAL_CROSSING_API_KEY` | API key from Visual Crossing (set as secret) | Yes |
 | `SITE_PASSWORD` | Password required to access the site (set as secret) | Yes |
+| `YEARS_OF_DATA` | Years of historical data to fetch (default: 2) | No |
 | `CACHE_TTL` | Cache duration in seconds (default: 2592000 = 30 days) | No |
+
+**Note on Visual Crossing API Limits:**
+- Free tier allows up to **1,000 records per day**
+- Each day of historical data counts as 1 record
+- Default is 2 years (~730 days) to stay well under the free tier limit
+- If you upgrade your Visual Crossing plan, you can increase `YEARS_OF_DATA` (e.g., set to 5 for more historical data)
 
 ## API Endpoints
 

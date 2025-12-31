@@ -9,7 +9,7 @@
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
 // Month names for output
@@ -20,7 +20,11 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const SOLAR_DECLINATIONS = [-20.9, -13.0, -2.4, 9.4, 18.8, 23.1, 21.2, 13.5, 2.2, -9.6, -18.9, -23.0];
 
 // Constants
-const YEARS_OF_DATA = 5;
+// Default: 1 year to stay well within Visual Crossing free tier limit (1000 records/day)
+// Each day counts as 1 record, so 1 year = ~365 days, well under the limit
+// Can be overridden with YEARS_OF_DATA environment variable
+// Note: If you hit quota limits, try reducing to 1 year or check your Visual Crossing dashboard
+const DEFAULT_YEARS_OF_DATA = 1;
 const SECONDS_PER_HOUR = 3600;
 const TYPICAL_PEAK_IRRADIANCE = 0.8; // kW/m²
 const CLEAR_SKY_RADIATION = 800; // W/m²
@@ -53,6 +57,15 @@ export default {
       return handleDataRequest(request, env);
     }
 
+    // Route: GET /api/autocomplete (protected)
+    if (url.pathname === '/api/autocomplete' && request.method === 'GET') {
+      const authResult = await verifyAuth(request, env);
+      if (!authResult.valid) {
+        return jsonResponse({ error: authResult.error || 'Unauthorized' }, 401);
+      }
+      return handleAutocompleteRequest(request);
+    }
+
     // Route: GET /api/health (public)
     if (url.pathname === '/api/health') {
       return jsonResponse({ status: 'ok', timestamp: new Date().toISOString() });
@@ -67,8 +80,24 @@ export default {
  */
 async function handleLogin(request, env) {
   try {
-    const body = await request.json();
-    const password = body.password;
+    // Check if request has a body
+    const contentType = request.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      return jsonResponse({ error: 'Content-Type must be application/json' }, 400);
+    }
+
+    let body;
+    try {
+      body = await request.json();
+    } catch (jsonError) {
+      return jsonResponse({ error: 'Invalid JSON in request body' }, 400);
+    }
+
+    const password = body?.password;
+
+    if (!password) {
+      return jsonResponse({ error: 'Password is required' }, 400);
+    }
 
     const expectedPassword = env.SITE_PASSWORD;
     if (!expectedPassword) {
@@ -90,7 +119,7 @@ async function handleLogin(request, env) {
     });
   } catch (error) {
     console.error('Login error:', error);
-    return jsonResponse({ error: 'Failed to process login' }, 500);
+    return jsonResponse({ error: 'Failed to process login: ' + error.message }, 500);
   }
 }
 
@@ -246,10 +275,12 @@ async function handleDataRequest(request, env) {
     // Fetch data from Visual Crossing API
     const apiKey = env.VISUAL_CROSSING_API_KEY;
     if (!apiKey) {
+      console.error('[API] VISUAL_CROSSING_API_KEY not configured');
       return jsonResponse({ error: 'API key not configured' }, 500);
     }
 
-    const weatherData = await fetchWeatherData(location, apiKey);
+    console.log(`[API] Fetching weather data for location: ${location}`);
+    const weatherData = await fetchWeatherData(location, apiKey, env);
     
     if (weatherData.error) {
       return jsonResponse({ error: weatherData.error }, 400);
@@ -271,40 +302,156 @@ async function handleDataRequest(request, env) {
 }
 
 /**
+ * Handle autocomplete request for location search
+ */
+async function handleAutocompleteRequest(request) {
+  try {
+    const url = new URL(request.url);
+    const query = url.searchParams.get('q')?.trim();
+
+    if (!query || query.length < 2) {
+      return jsonResponse({ suggestions: [] });
+    }
+
+    // Use Nominatim (OpenStreetMap) geocoding API for autocomplete
+    // Free, no API key required, good international coverage
+    const nominatimUrl = `https://nominatim.openstreetmap.org/search?` +
+      `format=json&` +
+      `q=${encodeURIComponent(query)}&` +
+      `limit=8&` +
+      `addressdetails=1&` +
+      `extratags=1`;
+
+    const response = await fetch(nominatimUrl, {
+      headers: {
+        'User-Agent': 'Solar-Planner/1.0' // Required by Nominatim
+      }
+    });
+
+    if (!response.ok) {
+      console.error(`[Nominatim] Error: ${response.status}`);
+      return jsonResponse({ suggestions: [] });
+    }
+
+    const data = await response.json();
+    
+    // Format suggestions for frontend
+    const suggestions = data.map(item => {
+      // Build display name from address components
+      const address = item.address || {};
+      let displayName = item.display_name;
+      
+      // Try to create a cleaner display name
+      const parts = [];
+      if (address.city || address.town || address.village) {
+        parts.push(address.city || address.town || address.village);
+      }
+      if (address.state) {
+        parts.push(address.state);
+      }
+      if (address.country) {
+        parts.push(address.country);
+      }
+      
+      if (parts.length > 0) {
+        displayName = parts.join(', ');
+      }
+
+      return {
+        display: displayName,
+        value: item.display_name, // Full name for API call
+        lat: parseFloat(item.lat),
+        lon: parseFloat(item.lon)
+      };
+    });
+
+    return jsonResponse({ suggestions });
+  } catch (error) {
+    console.error('Autocomplete error:', error);
+    return jsonResponse({ suggestions: [] });
+  }
+}
+
+/**
  * Fetch historical weather data from Visual Crossing API
  */
-async function fetchWeatherData(location, apiKey) {
+async function fetchWeatherData(location, apiKey, env) {
   try {
     // Fetch historical data
+    // Allow configurable years via environment variable, default to 2 years
+    const yearsOfData = parseInt(env.YEARS_OF_DATA) || DEFAULT_YEARS_OF_DATA;
     const endDate = new Date();
     const startDate = new Date();
-    startDate.setFullYear(endDate.getFullYear() - YEARS_OF_DATA);
+    startDate.setFullYear(endDate.getFullYear() - yearsOfData);
 
     const startStr = startDate.toISOString().split('T')[0];
     const endStr = endDate.toISOString().split('T')[0];
+
+    // Calculate approximate number of days (records)
+    const daysDiff = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
+    console.log(`[Visual Crossing] Requesting ${yearsOfData} year(s) of data (~${daysDiff} days/records)`);
 
     const params = new URLSearchParams({
       unitGroup: 'metric',
       include: 'days',
       key: apiKey,
-      elements: 'datetime,tempmax,tempmin,temp,humidity,solarradiation,solarenergy,uvindex,sunrise,sunset'
+      elements: 'datetime,tempmax,tempmin,temp,humidity,solarradiation,solarenergy,sunrise,sunset'
     });
 
     const apiUrl = `https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/${encodeURIComponent(location)}/${startStr}/${endStr}?${params}`;
 
+    // Log URL without API key for debugging
+    const urlForLogging = apiUrl.replace(/key=[^&]+/, 'key=***');
+    console.log(`[Visual Crossing] Request URL: ${urlForLogging}`);
+    console.log(`[Visual Crossing] Date range: ${startStr} to ${endStr} (~${daysDiff} records)`);
+    
     const response = await fetch(apiUrl);
+    console.log(`[Visual Crossing] Response status: ${response.status} ${response.statusText}`);
 
     if (!response.ok) {
+      // Try to read the response body for more details
+      let errorMessage = '';
+      try {
+        const errorBody = await response.text();
+        console.error(`[Visual Crossing] Error response (${response.status}):`, errorBody);
+        // Try to parse as JSON if possible
+        try {
+          const errorJson = JSON.parse(errorBody);
+          errorMessage = errorJson.message || errorJson.error || errorBody;
+        } catch {
+          errorMessage = errorBody || `HTTP ${response.status}`;
+        }
+      } catch (e) {
+        console.error(`[Visual Crossing] Failed to read error response:`, e);
+        errorMessage = `HTTP ${response.status}`;
+      }
+
+      // Check for specific error messages from Visual Crossing
+      const errorLower = errorMessage.toLowerCase();
+      if (errorLower.includes('maximum daily cost') || errorLower.includes('daily cost exceeded') || errorLower.includes('quota exceeded')) {
+        const daysRequested = Math.ceil((new Date(endStr) - new Date(startStr)) / (1000 * 60 * 60 * 24));
+        return { 
+          error: `Daily API quota exceeded. Your Visual Crossing API plan has reached its daily limit (1000 records/day). This request would use ~${daysRequested} records. Please check your Visual Crossing dashboard, wait for the daily reset (UTC midnight), or upgrade your plan.` 
+        };
+      }
+      if (errorLower.includes('rate limit') || errorLower.includes('too many requests')) {
+        return { error: 'Rate limit exceeded. Please wait a moment and try again.' };
+      }
+
       if (response.status === 400) {
-        return { error: 'Location not found. Please check the spelling and try again.' };
+        return { error: errorMessage || 'Location not found. Please check the spelling and try again.' };
       }
       if (response.status === 401 || response.status === 403) {
-        return { error: 'API authentication failed.' };
+        return { error: errorMessage || 'API authentication failed. Please check your API key.' };
       }
-      return { error: `Weather API error: ${response.status}` };
+      if (response.status === 429) {
+        return { error: errorMessage || 'Rate limit exceeded. Please wait a moment and try again.' };
+      }
+      return { error: `Weather API error (${response.status}): ${errorMessage}` };
     }
 
     const data = await response.json();
+    console.log(`[Visual Crossing] Successfully fetched data for: ${location}`);
     return data;
   } catch (error) {
     // Handle network errors or JSON parsing failures
