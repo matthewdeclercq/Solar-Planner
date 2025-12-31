@@ -1,0 +1,19 @@
+name = "solar-planner-api"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+# KV Namespace for caching API responses
+# After creating the namespace with `wrangler kv namespace create SOLAR_CACHE`
+# Replace the id below with your actual namespace ID
+[[kv_namespaces]]
+binding = "SOLAR_CACHE"
+id = "6291202ddaa6448fa7038819986d0a51"
+preview_id = "97c6ce29d75643458f7713868e9bd59e"
+
+# Environment variables (non-secrets)
+[vars]
+CACHE_TTL = "2592000"  # 30 days in seconds
+
+# The VISUAL_CROSSING_API_KEY should be added as a secret:
+# wrangler secret put VISUAL_CROSSING_API_KEY
+

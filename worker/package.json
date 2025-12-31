@@ -1,0 +1,22 @@
+{
+  "name": "solar-planner-api",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker API for Solar Weather & Peak Sun Hours",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "keywords": ["solar", "weather", "cloudflare", "worker"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^3.114.16"
+  },
+  "overrides": {
+    "rollup-plugin-inject": "npm:@rollup/plugin-inject@^5.0.0",
+    "sourcemap-codec": "npm:@jridgewell/sourcemap-codec@^1.5.0"
+  }
+}
+

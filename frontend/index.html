@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Solar Planner | Weather & Peak Sun Hours</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="background-pattern"></div>
+  
+  <!-- Login Page -->
+  <div id="login-page" class="login-page hidden">
+    <main class="container">
+      <div class="login-container">
+        <div class="logo">
+          <img src="assets/CT_LOGO.webp" alt="Logo" class="logo-image">
+          <h1>Solar Planner</h1>
+        </div>
+        <form id="login-form" class="login-form">
+          <div class="input-wrapper">
+            <svg class="lock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            <input 
+              type="password" 
+              id="password-input" 
+              placeholder="Enter password" 
+              autocomplete="current-password"
+              required
+              autofocus
+            >
+          </div>
+          <button type="submit" id="login-btn" class="submit-btn">
+            <span class="btn-text">Login</span>
+            <svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="5" y1="12" x2="19" y2="12"/>
+              <polyline points="12 5 19 12 12 19"/>
+            </svg>
+          </button>
+          <div id="login-error" class="error-message hidden" style="margin-top: 1rem;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <p id="login-error-text"></p>
+          </div>
+        </form>
+      </div>
+    </main>
+  </div>
+  
+  <!-- Main Application -->
+  <div id="main-app" class="main-app hidden">
+    <main class="container">
+      <!-- Header -->
+      <header class="header">
+        <div class="logo">
+          <img src="assets/CT_LOGO.webp" alt="Logo" class="logo-image">
+          <h1>Solar Planner</h1>
+        </div>
+        <p class="tagline">Historical weather data & peak sun hours for solar panel planning</p>
+      </header>
+
+    <!-- Search Section -->
+    <section class="search-section">
+      <form id="search-form" class="search-form">
+        <div class="input-wrapper">
+          <svg class="location-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/>
+            <circle cx="12" cy="10" r="3"/>
+          </svg>
+          <input 
+            type="text" 
+            id="location-input" 
+            placeholder="Enter city or address (e.g., Austin, TX)" 
+            autocomplete="off"
+            required
+          >
+        </div>
+        <button type="submit" id="submit-btn" class="submit-btn">
+          <span class="btn-text">Get Data</span>
+          <svg class="arrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="5" y1="12" x2="19" y2="12"/>
+            <polyline points="12 5 19 12 12 19"/>
+          </svg>
+        </button>
+      </form>
+    </section>
+
+    <!-- Loading Spinner -->
+    <div id="loading" class="loading hidden">
+      <div class="spinner"></div>
+      <p>Fetching solar data...</p>
+    </div>
+
+    <!-- Error Message -->
+    <div id="error" class="error-message hidden">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/>
+        <line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <p id="error-text"></p>
+    </div>
+
+    <!-- Results Container -->
+    <div id="results" class="results hidden">
+      <!-- Location Info -->
+      <div id="location-info" class="location-info">
+        <h2 id="resolved-location"></h2>
+        <p id="coordinates"></p>
+      </div>
+
+      <!-- Section 1: Historical Weather -->
+      <section class="data-section">
+        <div class="section-header">
+          <h3>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+              <polyline points="10 9 9 9 8 9"/>
+            </svg>
+            Historical Weather Averages
+          </h3>
+        </div>
+        
+        <div class="table-container">
+          <table id="weather-table" class="data-table">
+            <thead>
+              <tr>
+                <th>Month</th>
+                <th>High (°F)</th>
+                <th>Low (°F)</th>
+                <th>Mean (°F)</th>
+                <th>Humidity (%)</th>
+                <th>Sunshine (hrs/day)</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div class="chart-container">
+          <canvas id="weather-chart"></canvas>
+        </div>
+      </section>
+
+      <!-- Section 2: Solar Peak Sun Hours -->
+      <section class="data-section">
+        <div class="section-header">
+          <h3>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="5"/>
+              <line x1="12" y1="1" x2="12" y2="3"/>
+              <line x1="12" y1="21" x2="12" y2="23"/>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+              <line x1="1" y1="12" x2="3" y2="12"/>
+              <line x1="21" y1="12" x2="23" y2="12"/>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            </svg>
+            Peak Sun Hours (PSH)
+          </h3>
+          <p class="section-description">kWh/m²/day on panel surface at different tilt angles</p>
+        </div>
+        
+        <div class="table-container">
+          <table id="solar-table" class="data-table solar-table">
+            <thead>
+              <tr>
+                <th rowspan="2">Month</th>
+                <th colspan="2">Monthly Optimal</th>
+                <th colspan="2">Yearly Fixed</th>
+                <th>Flat (0°)</th>
+              </tr>
+              <tr>
+                <th>Tilt (°)</th>
+                <th>PSH</th>
+                <th>Tilt (°)</th>
+                <th>PSH</th>
+                <th>PSH</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div class="chart-container">
+          <canvas id="solar-chart"></canvas>
+        </div>
+      </section>
+
+      <!-- Cache Info -->
+      <div id="cache-info" class="cache-info"></div>
+    </div>
+    </main>
+
+    <footer class="footer">
+      <p>Data from <a href="https://www.visualcrossing.com/" target="_blank" rel="noopener">Visual Crossing Weather</a></p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
+
