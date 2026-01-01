@@ -93,7 +93,13 @@ Note your worker URL (e.g., `https://solar-planner-api.matthew-declercq.workers.
 3. Configure:
    - **Framework preset**: None
    - **Build output directory**: `frontend`
-4. In Pages settings, add route: `/api/*` → Your worker name
+4. **Configure Worker Binding** (IMPORTANT):
+   - Go to your Pages project settings
+   - Navigate to **Functions** > **Workers**
+   - Add a worker binding:
+     - **Variable name**: `SOLAR_PLANNER_API`
+     - **Service**: Select your deployed `solar-planner-api` worker
+   - Save the configuration
 
 **Or deploy to any static host** (Netlify, Vercel, etc.) and update `API_URL` in `frontend/app.js` to your worker URL.
 
