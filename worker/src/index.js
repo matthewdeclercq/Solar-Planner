@@ -4,11 +4,32 @@
  * Full monthly North/South direction support added
  */
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-};
+// Allowed origins for CORS
+const ALLOWED_ORIGINS = [
+  'https://solar-planner.coppertech.co',
+  'https://solar-planner.coppertech.co/',
+  'https://solar-planner.pages.dev',
+  'https://solar-planner.pages.dev/',
+  'http://localhost:3000',
+  'http://localhost:8080',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:8080'
+];
+
+function getCorsHeaders(origin) {
+  const isAllowed = origin && ALLOWED_ORIGINS.some(allowed => {
+    const normalizedOrigin = origin.replace(/\/$/, ''); // Remove trailing slash
+    const normalizedAllowed = allowed.replace(/\/$/, ''); // Remove trailing slash
+    return normalizedOrigin === normalizedAllowed;
+  });
+  
+  return {
+    'Access-Control-Allow-Origin': isAllowed ? origin : ALLOWED_ORIGINS[0],
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Credentials': 'true',
+  };
+}
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -21,76 +42,79 @@ const TOKEN_EXPIRY_HOURS = 24;
 
 export default {
   async fetch(request, env, ctx) {
+    const origin = request.headers.get('Origin');
+    const corsHeaders = getCorsHeaders(origin);
+    
     if (request.method === 'OPTIONS') {
-      return new Response(null, { headers: CORS_HEADERS });
+      return new Response(null, { headers: corsHeaders });
     }
 
     const url = new URL(request.url);
 
     if (url.pathname === '/api/login' && request.method === 'POST') {
-      return handleLogin(request, env);
+      return handleLogin(request, env, corsHeaders);
     }
 
     if (url.pathname === '/api/data' && request.method === 'POST') {
       const authResult = await verifyAuth(request, env);
       if (!authResult.valid) {
-        return jsonResponse({ error: authResult.error || 'Unauthorized' }, 401);
+        return jsonResponse({ error: authResult.error || 'Unauthorized' }, 401, corsHeaders);
       }
-      return handleDataRequest(request, env, ctx);
+      return handleDataRequest(request, env, ctx, corsHeaders);
     }
 
     if (url.pathname === '/api/autocomplete' && request.method === 'GET') {
       const authResult = await verifyAuth(request, env);
       if (!authResult.valid) {
-        return jsonResponse({ error: authResult.error || 'Unauthorized' }, 401);
+        return jsonResponse({ error: authResult.error || 'Unauthorized' }, 401, corsHeaders);
       }
-      return handleAutocompleteRequest(request);
+      return handleAutocompleteRequest(request, corsHeaders);
     }
 
     if (url.pathname === '/api/cache/clear' && request.method === 'POST') {
       const authResult = await verifyAuth(request, env);
       if (!authResult.valid) {
-        return jsonResponse({ error: authResult.error || 'Unauthorized' }, 401);
+        return jsonResponse({ error: authResult.error || 'Unauthorized' }, 401, corsHeaders);
       }
-      return handleClearCache(request, env);
+      return handleClearCache(request, env, corsHeaders);
     }
 
     if (url.pathname === '/api/health') {
-      return jsonResponse({ status: 'ok', timestamp: new Date().toISOString() });
+      return jsonResponse({ status: 'ok', timestamp: new Date().toISOString() }, 200, corsHeaders);
     }
 
-    return jsonResponse({ error: 'Not found' }, 404);
+    return jsonResponse({ error: 'Not found' }, 404, corsHeaders);
   }
 };
 
 /* ── AUTHENTICATION (unchanged) ─────────────────────────────────────────── */
 
-async function handleLogin(request, env) {
+async function handleLogin(request, env, corsHeaders) {
   try {
     const contentType = request.headers.get('content-type');
     if (!contentType || !contentType.includes('application/json')) {
-      return jsonResponse({ error: 'Content-Type must be application/json' }, 400);
+      return jsonResponse({ error: 'Content-Type must be application/json' }, 400, corsHeaders);
     }
 
     let body;
     try {
       body = await request.json();
     } catch {
-      return jsonResponse({ error: 'Invalid JSON in request body' }, 400);
+      return jsonResponse({ error: 'Invalid JSON in request body' }, 400, corsHeaders);
     }
 
     const password = body?.password;
     if (!password) {
-      return jsonResponse({ error: 'Password is required' }, 400);
+      return jsonResponse({ error: 'Password is required' }, 400, corsHeaders);
     }
 
     const expectedPassword = env.SITE_PASSWORD;
     if (!expectedPassword) {
-      return jsonResponse({ error: 'Password not configured' }, 500);
+      return jsonResponse({ error: 'Password not configured' }, 500, corsHeaders);
     }
 
     if (password !== expectedPassword) {
-      return jsonResponse({ error: 'Invalid password' }, 401);
+      return jsonResponse({ error: 'Invalid password' }, 401, corsHeaders);
     }
 
     const expiresAt = Date.now() + (TOKEN_EXPIRY_HOURS * 60 * 60 * 1000);
@@ -100,10 +124,10 @@ async function handleLogin(request, env) {
       token,
       expiresAt,
       expiresIn: TOKEN_EXPIRY_HOURS * 60 * 60
-    });
+    }, 200, corsHeaders);
   } catch (error) {
     console.error('Login error:', error);
-    return jsonResponse({ error: 'Failed to process login' }, 500);
+    return jsonResponse({ error: 'Failed to process login' }, 500, corsHeaders);
   }
 }
 
@@ -194,12 +218,12 @@ function parseToken(token) {
 
 /* ── AUTOCOMPLETE (unchanged) ───────────────────────────────────────────── */
 
-async function handleAutocompleteRequest(request) {
+async function handleAutocompleteRequest(request, corsHeaders) {
   try {
     const url = new URL(request.url);
     const query = url.searchParams.get('q')?.trim();
     if (!query || query.length < 2) {
-      return jsonResponse({ suggestions: [] });
+      return jsonResponse({ suggestions: [] }, 200, corsHeaders);
     }
 
     const nominatimUrl = `https://nominatim.openstreetmap.org/search?` +
@@ -210,7 +234,7 @@ async function handleAutocompleteRequest(request) {
     });
 
     if (!response.ok) {
-      return jsonResponse({ suggestions: [] });
+      return jsonResponse({ suggestions: [] }, 200, corsHeaders);
     }
 
     const data = await response.json();
@@ -272,16 +296,16 @@ async function handleAutocompleteRequest(request) {
       };
     });
 
-    return jsonResponse({ suggestions });
+    return jsonResponse({ suggestions }, 200, corsHeaders);
   } catch (error) {
     console.error('Autocomplete error:', error);
-    return jsonResponse({ suggestions: [] });
+    return jsonResponse({ suggestions: [] }, 200, corsHeaders);
   }
 }
 
 /* ── CACHE MANAGEMENT ──────────────────────────────────────────────────── */
 
-async function handleClearCache(request, env) {
+async function handleClearCache(request, env, corsHeaders) {
   try {
     const body = await request.json().catch(() => ({}));
     const location = body.location?.trim();
@@ -317,20 +341,20 @@ async function handleClearCache(request, env) {
         ? `Cache cleared for location: ${location}` 
         : 'All cache entries cleared',
       deletedCount
-    });
+    }, 200, corsHeaders);
   } catch (error) {
     console.error('Clear cache error:', error);
-    return jsonResponse({ error: 'Failed to clear cache: ' + error.message }, 500);
+    return jsonResponse({ error: 'Failed to clear cache: ' + error.message }, 500, corsHeaders);
   }
 }
 
 /* ── DATA ENDPOINT ───────────────────────────────────────────────────────── */
 
-async function handleDataRequest(request, env, ctx) {
+async function handleDataRequest(request, env, ctx, corsHeaders) {
   try {
     const body = await request.json();
     const location = body.location?.trim();
-    if (!location) return jsonResponse({ error: 'Location is required' }, 400);
+    if (!location) return jsonResponse({ error: 'Location is required' }, 400, corsHeaders);
 
     let apiLocation = location;
     if (body.lat != null && body.lon != null) {
@@ -341,11 +365,11 @@ async function handleDataRequest(request, env, ctx) {
     const cached = await env.SOLAR_CACHE.get(cacheKey, 'json');
     if (cached) {
       const years = parseInt(env.YEARS_OF_DATA) || DEFAULT_YEARS_OF_DATA;
-      return jsonResponse({ ...cached, cached: true, yearsOfData: years });
+      return jsonResponse({ ...cached, cached: true, yearsOfData: years }, 200, corsHeaders);
     }
 
     const apiKey = env.VISUAL_CROSSING_API_KEY;
-    if (!apiKey) return jsonResponse({ error: 'API key not configured' }, 500);
+    if (!apiKey) return jsonResponse({ error: 'API key not configured' }, 500, corsHeaders);
 
     const years = parseInt(env.YEARS_OF_DATA) || DEFAULT_YEARS_OF_DATA;
     const endDate = new Date();
@@ -372,16 +396,16 @@ async function handleDataRequest(request, env, ctx) {
       const errorText = await response.text();
       console.error(`[API] Error ${response.status}: ${errorText}`);
       if (response.status === 429) {
-        return jsonResponse({ error: 'API rate limit exceeded. Please try again later.' }, 429);
+        return jsonResponse({ error: 'API rate limit exceeded. Please try again later.' }, 429, corsHeaders);
       }
-      return jsonResponse({ error: 'Could not fetch weather data for this location' }, 400);
+      return jsonResponse({ error: 'Could not fetch weather data for this location' }, 400, corsHeaders);
     }
 
     const data = await response.json();
     const { latitude, longitude, resolvedAddress, days } = data;
 
     if (!days || days.length === 0) {
-      return jsonResponse({ error: 'No weather data available for this location' }, 400);
+      return jsonResponse({ error: 'No weather data available for this location' }, 400, corsHeaders);
     }
 
     console.log(`[API] Received ${days.length} days of data for ${resolvedAddress}`);
@@ -481,11 +505,11 @@ async function handleDataRequest(request, env, ctx) {
       env.SOLAR_CACHE.put(cacheKey, JSON.stringify(result), { expirationTtl: DEFAULT_CACHE_TTL })
     );
 
-    return jsonResponse({ ...result, cached: false });
+    return jsonResponse({ ...result, cached: false }, 200, corsHeaders);
 
   } catch (error) {
     console.error('Data request error:', error);
-    return jsonResponse({ error: 'Failed to process request: ' + error.message }, 500);
+    return jsonResponse({ error: 'Failed to process request: ' + error.message }, 500, corsHeaders);
   }
 }
 
@@ -603,12 +627,13 @@ function round(num, decimals = 1) {
   return Math.round(num * factor) / factor;
 }
 
-function jsonResponse(data, status = 200) {
+function jsonResponse(data, status = 200, corsHeaders) {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(corsHeaders || getCorsHeaders(null))
+  };
   return new Response(JSON.stringify(data), {
     status,
-    headers: {
-      'Content-Type': 'application/json',
-      ...CORS_HEADERS
-    }
+    headers
   });
 }
