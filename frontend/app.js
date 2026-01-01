@@ -9,6 +9,7 @@ const isLocalDev = window.location.hostname === 'localhost' || window.location.h
 const API_BASE = isLocalDev ? 'http://localhost:8787' : '';
 const API_URL = `${API_BASE}/api/data`;
 const LOGIN_URL = `${API_BASE}/api/login`;
+const CACHE_CLEAR_URL = `${API_BASE}/api/cache/clear`;
 const TOKEN_STORAGE_KEY = 'solar_planner_token';
 const TOKEN_EXPIRY_KEY = 'solar_planner_token_expiry';
 
@@ -30,13 +31,16 @@ const errorText = document.getElementById('error-text');
 const resultsEl = document.getElementById('results');
 const resolvedLocationEl = document.getElementById('resolved-location');
 const coordinatesEl = document.getElementById('coordinates');
+const yearsInfoEl = document.getElementById('years-info');
 const weatherTableBody = document.querySelector('#weather-table tbody');
 const solarTableBody = document.querySelector('#solar-table tbody');
 const cacheInfoEl = document.getElementById('cache-info');
+const clearCacheBtn = document.getElementById('clear-cache-btn');
 
 // Chart instances
 let weatherChart = null;
 let solarChart = null;
+let solarTiltChart = null;
 
 // Chart.js default configuration
 Chart.defaults.font.family = "'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
@@ -151,13 +155,16 @@ function init() {
   
   searchForm.addEventListener('submit', handleSubmit);
   setupAutocomplete();
+  setupViewToggles();
+  setupClearCache();
   
   // Check for location in URL params
   const urlParams = new URLSearchParams(window.location.search);
   const location = urlParams.get('location');
   if (location) {
     locationInput.value = location;
-    fetchData(location);
+    const apiLocation = locationInput.dataset.apiLocation || location;
+    fetchData(apiLocation, location);
   }
 }
 
@@ -275,6 +282,75 @@ let selectedIndex = -1;
 let autocompleteTimeout = null;
 
 /**
+ * Setup view toggle functionality
+ */
+function setupViewToggles() {
+  const toggleButtons = document.querySelectorAll('.toggle-btn');
+  
+  toggleButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      const section = button.dataset.section;
+      const view = button.dataset.view;
+      
+      // Update button states
+      const sectionButtons = document.querySelectorAll(`[data-section="${section}"].toggle-btn`);
+      sectionButtons.forEach(btn => btn.classList.remove('active'));
+      button.classList.add('active');
+      
+      // Handle solar graph toggle (PSH vs Tilt Angle)
+      if (section === 'solar-graph') {
+        const solarChartEl = document.getElementById('solar-chart');
+        const solarTiltChartEl = document.getElementById('solar-tilt-chart');
+        
+        if (view === 'psh') {
+          solarChartEl.classList.remove('hidden');
+          solarTiltChartEl.classList.add('hidden');
+          setTimeout(() => {
+            if (solarChart) solarChart.resize();
+          }, 100);
+        } else if (view === 'tilt') {
+          solarChartEl.classList.add('hidden');
+          solarTiltChartEl.classList.remove('hidden');
+          setTimeout(() => {
+            if (solarTiltChart) solarTiltChart.resize();
+          }, 100);
+        }
+        return;
+      }
+      
+      // Show/hide content
+      const sectionContents = document.querySelectorAll(`[data-section="${section}"].view-content`);
+      sectionContents.forEach(content => {
+        if (content.dataset.view === view) {
+          content.classList.remove('hidden');
+          // Resize chart if switching to graph view
+          if (view === 'graph') {
+            setTimeout(() => {
+              if (section === 'weather' && weatherChart) {
+                weatherChart.resize();
+              } else if (section === 'solar') {
+                // Show/hide graph toggle when switching to graph view
+                const graphToggle = document.getElementById('solar-graph-toggle');
+                if (graphToggle) graphToggle.style.display = 'flex';
+                if (solarChart) solarChart.resize();
+              }
+            }, 100);
+          } else {
+            // Hide graph toggle when switching to table view
+            if (section === 'solar') {
+              const graphToggle = document.getElementById('solar-graph-toggle');
+              if (graphToggle) graphToggle.style.display = 'none';
+            }
+          }
+        } else {
+          content.classList.add('hidden');
+        }
+      });
+    });
+  });
+}
+
+/**
  * Setup autocomplete functionality
  */
 function setupAutocomplete() {
@@ -283,6 +359,9 @@ function setupAutocomplete() {
   locationInput.addEventListener('input', (e) => {
     if (isComposing) return;
     const query = e.target.value.trim();
+    
+    // Clear API location when user types manually (not from autocomplete selection)
+    delete locationInput.dataset.apiLocation;
     
     // Clear previous timeout
     if (autocompleteTimeout) {
@@ -426,7 +505,10 @@ function updateAutocompleteSelection() {
  * Select an autocomplete suggestion
  */
 function selectAutocomplete(suggestion) {
-  locationInput.value = suggestion.value;
+  // Store display value and API-compatible location
+  locationInput.value = suggestion.display || suggestion.value;
+  // Store API location in data attribute (coordinates preferred)
+  locationInput.dataset.apiLocation = suggestion.apiLocation || suggestion.value;
   hideAutocomplete();
   locationInput.focus();
 }
@@ -462,18 +544,23 @@ async function handleSubmit(e) {
     return;
   }
   
-  // Update URL with location
+  // Use API-compatible location if available (coordinates preferred), otherwise use input value
+  const apiLocation = locationInput.dataset.apiLocation || location;
+  
+  // Update URL with display location
   const url = new URL(window.location);
   url.searchParams.set('location', location);
   window.history.pushState({}, '', url);
   
-  await fetchData(location);
+  await fetchData(apiLocation, location);
 }
 
 /**
  * Fetch data from the API
+ * @param {string} apiLocation - API-compatible location (coordinates or address)
+ * @param {string} displayLocation - Display location name (optional, defaults to apiLocation)
  */
-async function fetchData(location) {
+async function fetchData(apiLocation, displayLocation = null) {
   showLoading();
   hideError();
   hideResults();
@@ -487,13 +574,30 @@ async function fetchData(location) {
   }
   
   try {
+    // Parse coordinates if provided in "lat,lon" format
+    const locationParts = apiLocation.split(',');
+    const requestBody = { location: apiLocation };
+    
+    // Store the original input location for cache clearing (this is what the cache key is based on)
+    const cacheKeyLocation = apiLocation;
+    
+    // If it looks like coordinates, also send lat/lon separately for better API compatibility
+    if (locationParts.length === 2) {
+      const lat = parseFloat(locationParts[0].trim());
+      const lon = parseFloat(locationParts[1].trim());
+      if (!isNaN(lat) && !isNaN(lon)) {
+        requestBody.lat = lat;
+        requestBody.lon = lon;
+      }
+    }
+    
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
       },
-      body: JSON.stringify({ location })
+      body: JSON.stringify(requestBody)
     });
     
     let data;
@@ -516,7 +620,7 @@ async function fetchData(location) {
     }
     
     hideLoading();
-    displayResults(data);
+    displayResults(data, cacheKeyLocation);
     
   } catch (error) {
     hideLoading();
@@ -527,19 +631,17 @@ async function fetchData(location) {
 
 /**
  * Display the results
+ * @param {Object} data - The data from the API
+ * @param {string} cacheKeyLocation - The original location used to create the cache key
  */
-function displayResults(data) {
+function displayResults(data, cacheKeyLocation) {
   // Update location info
   resolvedLocationEl.textContent = data.location;
   coordinatesEl.textContent = `${data.latitude}°, ${data.longitude}°`;
   
-  // Render tables
-  renderWeatherTable(data.weather);
-  renderSolarTable(data.solar);
-  
-  // Render charts
-  renderWeatherChart(data.weather);
-  renderSolarChart(data.solar);
+  // Display years of data
+  const years = data.yearsOfData || 2;
+  yearsInfoEl.textContent = `Averaging ${years} ${years === 1 ? 'year' : 'years'} of historical data`;
   
   // Show cache status
   if (data.cached) {
@@ -549,6 +651,19 @@ function displayResults(data) {
     cacheInfoEl.textContent = 'Fresh data fetched';
     cacheInfoEl.classList.remove('cached');
   }
+  
+  // Render tables
+  renderWeatherTable(data.weather);
+  renderSolarTable(data.solar);
+  
+  // Render charts
+  renderWeatherChart(data.weather);
+  renderSolarChart(data.solar);
+  renderSolarTiltChart(data.solar);
+  
+  // Store the original input location used for cache key (not the resolved address)
+  // This ensures cache clearing uses the same key that was used for caching
+  clearCacheBtn.dataset.currentLocation = cacheKeyLocation || data.location;
   
   showResults();
 }
@@ -576,9 +691,9 @@ function renderSolarTable(solar) {
   solarTableBody.innerHTML = solar.map(row => `
     <tr>
       <td>${row.month}</td>
-      <td>${row.monthlyOptimal.tilt}°</td>
+      <td>${row.monthlyOptimal.tilt}</td>
       <td>${row.monthlyOptimal.psh}</td>
-      <td>${row.yearlyFixed.tilt}°</td>
+      <td>${row.yearlyFixed.tilt}</td>
       <td>${row.yearlyFixed.psh}</td>
       <td>${row.flat.psh}</td>
     </tr>
@@ -605,8 +720,7 @@ function renderWeatherChart(weather) {
         createLineDataset('High (°F)', weather.map(w => w.highF), '#DC2F02', { yAxisID: 'y' }),
         createLineDataset('Mean (°F)', weather.map(w => w.meanF), '#F5A623', { yAxisID: 'y' }),
         createLineDataset('Low (°F)', weather.map(w => w.lowF), '#0096C7', { yAxisID: 'y' }),
-        createBarDataset('Humidity (%)', weather.map(w => w.humidity), '#10B981', 'y1', 2),
-        createBarDataset('Sunshine (hrs)', weather.map(w => w.sunshineHours), '#FBBF24', 'y2', 1)
+        createBarDataset('Humidity (%)', weather.map(w => w.humidity), '#10B981', 'y1', 2)
       ]
     },
     options: {
@@ -614,8 +728,7 @@ function renderWeatherChart(weather) {
       scales: {
         ...CHART_COMMON_OPTIONS.scales,
         y: createYAxis('Temperature (°F)'),
-        y1: { ...createYAxis('Humidity (%)', 'right', 0, 100), display: true },
-        y2: { ...createYAxis('Sunshine (hrs)', 'right', 0, 16), display: false }
+        y1: { ...createYAxis('Humidity (%)', 'right', 0, 100), display: true }
       }
     }
   });
@@ -665,6 +778,201 @@ function renderSolarChart(solar) {
         ...CHART_COMMON_OPTIONS.scales,
         y: createYAxis('Peak Sun Hours (kWh/m²/day)', 'left', 0)
       }
+    }
+  });
+}
+
+/**
+ * Parse tilt angle from string like "45° N" or "30° S"
+ * Returns negative values for North, positive for South
+ */
+function parseTiltAngle(tiltString) {
+  const match = tiltString.match(/(\d+)\s*°\s*([NS])?/i);
+  if (!match) return 0;
+  
+  const angle = parseInt(match[1], 10);
+  const direction = match[2]?.toUpperCase();
+  
+  // North-facing tilts are negative, South-facing are positive
+  if (direction === 'N') {
+    return -angle;
+  } else if (direction === 'S') {
+    return angle;
+  }
+  
+  // If no direction specified, assume it's the absolute value (likely 0°)
+  return angle;
+}
+
+/**
+ * Render the solar tilt angle chart
+ */
+function renderSolarTiltChart(solar) {
+  const ctx = document.getElementById('solar-tilt-chart').getContext('2d');
+  
+  if (solarTiltChart) {
+    solarTiltChart.destroy();
+  }
+  
+  const labels = solar.map(s => s.month);
+  
+  // Parse tilt angles from strings (North = negative, South = positive)
+  const monthlyOptimalTilt = solar.map(s => parseTiltAngle(s.monthlyOptimal.tilt));
+  const yearlyFixedTilt = solar.map(s => parseTiltAngle(s.yearlyFixed.tilt));
+  
+  // Find the range of tilt angles to set appropriate Y-axis bounds
+  const allTilts = [...monthlyOptimalTilt, ...yearlyFixedTilt];
+  const maxAbsTilt = Math.max(...allTilts.map(Math.abs));
+  const yAxisMax = Math.ceil(maxAbsTilt * 1.1); // Add 10% padding
+  const yAxisMin = -yAxisMax; // Symmetric around 0
+  
+  solarTiltChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        createLineDataset('Monthly Optimal Tilt', monthlyOptimalTilt, '#F5A623', {
+          borderWidth: 3,
+          pointRadius: 5,
+          pointHoverRadius: 7,
+          fill: true
+        }),
+        createLineDataset('Yearly Fixed Tilt', yearlyFixedTilt, '#0096C7', {
+          borderWidth: 2,
+          pointRadius: 4,
+          pointHoverRadius: 6
+        })
+      ]
+    },
+    options: {
+      ...CHART_COMMON_OPTIONS,
+      plugins: {
+        ...CHART_COMMON_OPTIONS.plugins,
+        tooltip: {
+          ...CHART_COMMON_OPTIONS.plugins.tooltip,
+          callbacks: {
+            label: (context) => {
+              const monthIndex = context.dataIndex;
+              const tiltValue = context.parsed.y;
+              const absValue = Math.abs(tiltValue);
+              const direction = tiltValue < 0 ? 'N' : tiltValue > 0 ? 'S' : '';
+              
+              // Get original tilt string for reference
+              const originalTilt = context.datasetIndex === 0 
+                ? solar[monthIndex].monthlyOptimal.tilt
+                : solar[monthIndex].yearlyFixed.tilt;
+              
+              return `${context.dataset.label}: ${absValue}°${direction ? ' ' + direction : ''}`;
+            }
+          }
+        }
+      },
+      scales: {
+        ...CHART_COMMON_OPTIONS.scales,
+        y: {
+          type: 'linear',
+          display: true,
+          position: 'left',
+          title: { display: true, text: 'Tilt Angle (degrees)' },
+          min: yAxisMin,
+          max: yAxisMax,
+          ticks: {
+            callback: function(value) {
+              const absValue = Math.abs(value);
+              const direction = value < 0 ? 'N' : value > 0 ? 'S' : '';
+              return absValue + '°' + (direction ? ' ' + direction : '');
+            }
+          },
+          grid: {
+            color: function(context) {
+              // Highlight the 0° line
+              if (context.tick && context.tick.value === 0) {
+                return 'rgba(141, 164, 190, 0.4)';
+              }
+              return 'rgba(141, 164, 190, 0.1)';
+            },
+            lineWidth: function(context) {
+              // Make the 0° line thicker
+              if (context.tick && context.tick.value === 0) {
+                return 2;
+              }
+              return 1;
+            }
+          }
+        }
+      }
+    }
+  });
+}
+
+/**
+ * Setup clear cache functionality
+ */
+function setupClearCache() {
+  clearCacheBtn.addEventListener('click', async () => {
+    if (!confirm('Are you sure you want to clear the cached data? This will force fresh data to be fetched on the next request.')) {
+      return;
+    }
+    
+    const token = getAuthToken();
+    if (!token) {
+      showError('Not authenticated. Please login again.');
+      clearAuth();
+      setTimeout(() => window.location.reload(), 2000);
+      return;
+    }
+    
+    clearCacheBtn.disabled = true;
+    const originalText = clearCacheBtn.innerHTML;
+    clearCacheBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Clearing...';
+    
+    try {
+      const currentLocation = clearCacheBtn.dataset.currentLocation;
+      const requestBody = currentLocation ? { location: currentLocation } : {};
+      
+      const response = await fetch(CACHE_CLEAR_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(requestBody)
+      });
+      
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        throw new Error('Invalid response from server');
+      }
+      
+      if (response.status === 401) {
+        clearAuth();
+        showError('Session expired. Please login again.');
+        setTimeout(() => window.location.reload(), 2000);
+        return;
+      }
+      
+      if (!response.ok || data.error) {
+        throw new Error(data.error || 'Failed to clear cache');
+      }
+      
+      // Show success message
+      const message = data.message || 'Cache cleared successfully';
+      cacheInfoEl.textContent = `✓ ${message}`;
+      cacheInfoEl.classList.add('cached');
+      
+      // Reset button after a moment
+      setTimeout(() => {
+        clearCacheBtn.innerHTML = originalText;
+        clearCacheBtn.disabled = false;
+      }, 2000);
+      
+    } catch (error) {
+      showError(error.message || 'Failed to clear cache');
+      clearCacheBtn.innerHTML = originalText;
+      clearCacheBtn.disabled = false;
+      console.error('Clear cache error:', error);
     }
   });
 }

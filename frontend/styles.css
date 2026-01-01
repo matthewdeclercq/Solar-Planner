@@ -375,10 +375,18 @@ body {
 }
 
 .location-info {
-  text-align: center;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-lg);
   margin-bottom: var(--space-2xl);
   padding-bottom: var(--space-xl);
   border-bottom: 1px solid var(--border-color);
+}
+
+.location-info > div {
+  flex: 1;
+  text-align: center;
 }
 
 .location-info h2 {
@@ -392,6 +400,79 @@ body {
   font-family: var(--font-mono);
   font-size: 0.875rem;
   color: var(--text-muted);
+  margin-top: var(--space-xs);
+}
+
+.years-info {
+  font-family: var(--font-sans) !important;
+  font-size: 0.875rem !important;
+  color: var(--text-secondary) !important;
+  margin-top: var(--space-sm) !important;
+}
+
+.location-info .cache-info {
+  font-family: var(--font-sans) !important;
+  font-size: 0.75rem !important;
+  color: var(--text-muted) !important;
+  margin-top: var(--space-xs) !important;
+  text-align: center !important;
+}
+
+.location-info .cache-info.cached {
+  color: var(--success) !important;
+}
+
+.clear-cache-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.clear-cache-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.clear-cache-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border-color: var(--border-focus);
+}
+
+.clear-cache-btn:active {
+  transform: scale(0.98);
+}
+
+.clear-cache-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .location-info {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .location-info > div {
+    text-align: center;
+  }
+  
+  .clear-cache-btn {
+    align-self: center;
+  }
 }
 
 /* ================================
@@ -407,7 +488,11 @@ body {
 }
 
 .section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
   margin-bottom: var(--space-lg);
+  gap: var(--space-md);
 }
 
 .section-header h3 {
@@ -429,6 +514,82 @@ body {
   margin-top: var(--space-xs);
   font-size: 0.875rem;
   color: var(--text-muted);
+}
+
+.view-toggle {
+  display: flex;
+  gap: var(--space-xs);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 2px;
+  flex-shrink: 0;
+}
+
+.toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: calc(var(--radius-md) - 2px);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.toggle-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.toggle-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.toggle-btn.active {
+  color: var(--night-dark);
+  background: linear-gradient(135deg, var(--sun-gold), var(--sun-orange));
+  box-shadow: 0 2px 4px rgba(245, 166, 35, 0.2);
+}
+
+.toggle-btn.active:hover {
+  background: linear-gradient(135deg, var(--sun-orange), #DC2F02);
+}
+
+.view-content.hidden {
+  display: none !important;
+}
+
+@media (max-width: 640px) {
+  .section-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .view-toggle {
+    align-self: flex-end;
+  }
+  
+  .toggle-btn {
+    font-size: 0.75rem;
+    padding: var(--space-xs) var(--space-sm);
+  }
+  
+  .toggle-btn span {
+    display: none;
+  }
+  
+  .toggle-btn svg {
+    width: 18px;
+    height: 18px;
+  }
 }
 
 /* ================================
@@ -499,6 +660,10 @@ body {
   padding: var(--space-md);
   background: var(--bg-secondary);
   border-radius: var(--radius-md);
+}
+
+.chart-container canvas.hidden {
+  display: none !important;
 }
 
 @media (min-width: 768px) {

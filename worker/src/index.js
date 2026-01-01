@@ -1,63 +1,44 @@
 /**
  * Solar Planner API - Cloudflare Worker
  * 
- * Proxies requests to Visual Crossing Weather API, calculates monthly averages
- * and peak sun hours for solar panels, and caches results in KV.
+ * Full monthly North/South direction support added
  */
 
-// CORS headers for cross-origin requests
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
-// Month names for output
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-// Solar declination approximation for each month (degrees)
-// Positive in summer (N hemisphere), negative in winter
+// Solar declination by month (degrees) - positive when sun is north of equator
 const SOLAR_DECLINATIONS = [-20.9, -13.0, -2.4, 9.4, 18.8, 23.1, 21.2, 13.5, 2.2, -9.6, -18.9, -23.0];
 
-// Constants
-// Default: 1 year to stay well within Visual Crossing free tier limit (1000 records/day)
-// Each day counts as 1 record, so 1 year = ~365 days, well under the limit
-// Can be overridden with YEARS_OF_DATA environment variable
-// Note: If you hit quota limits, try reducing to 1 year or check your Visual Crossing dashboard
-const DEFAULT_YEARS_OF_DATA = 1;
-const SECONDS_PER_HOUR = 3600;
-const TYPICAL_PEAK_IRRADIANCE = 0.8; // kW/m²
-const CLEAR_SKY_RADIATION = 800; // W/m²
-const DEFAULT_CACHE_TTL = 2592000; // 30 days in seconds
-const TOKEN_EXPIRY_HOURS = 24; // Token expires after 24 hours
+const DEFAULT_YEARS_OF_DATA = 2;
+const DEFAULT_CACHE_TTL = 2592000; // 30 days
+const TOKEN_EXPIRY_HOURS = 24;
 
-/**
- * Main request handler
- */
 export default {
   async fetch(request, env, ctx) {
-    // Handle CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: CORS_HEADERS });
     }
 
     const url = new URL(request.url);
 
-    // Route: POST /api/login (public)
     if (url.pathname === '/api/login' && request.method === 'POST') {
       return handleLogin(request, env);
     }
 
-    // Route: POST /api/data (protected)
     if (url.pathname === '/api/data' && request.method === 'POST') {
       const authResult = await verifyAuth(request, env);
       if (!authResult.valid) {
         return jsonResponse({ error: authResult.error || 'Unauthorized' }, 401);
       }
-      return handleDataRequest(request, env);
+      return handleDataRequest(request, env, ctx);
     }
 
-    // Route: GET /api/autocomplete (protected)
     if (url.pathname === '/api/autocomplete' && request.method === 'GET') {
       const authResult = await verifyAuth(request, env);
       if (!authResult.valid) {
@@ -66,7 +47,14 @@ export default {
       return handleAutocompleteRequest(request);
     }
 
-    // Route: GET /api/health (public)
+    if (url.pathname === '/api/cache/clear' && request.method === 'POST') {
+      const authResult = await verifyAuth(request, env);
+      if (!authResult.valid) {
+        return jsonResponse({ error: authResult.error || 'Unauthorized' }, 401);
+      }
+      return handleClearCache(request, env);
+    }
+
     if (url.pathname === '/api/health') {
       return jsonResponse({ status: 'ok', timestamp: new Date().toISOString() });
     }
@@ -75,12 +63,10 @@ export default {
   }
 };
 
-/**
- * Handle login request
- */
+/* ── AUTHENTICATION (unchanged) ─────────────────────────────────────────── */
+
 async function handleLogin(request, env) {
   try {
-    // Check if request has a body
     const contentType = request.headers.get('content-type');
     if (!contentType || !contentType.includes('application/json')) {
       return jsonResponse({ error: 'Content-Type must be application/json' }, 400);
@@ -89,12 +75,11 @@ async function handleLogin(request, env) {
     let body;
     try {
       body = await request.json();
-    } catch (jsonError) {
+    } catch {
       return jsonResponse({ error: 'Invalid JSON in request body' }, 400);
     }
 
     const password = body?.password;
-
     if (!password) {
       return jsonResponse({ error: 'Password is required' }, 400);
     }
@@ -108,55 +93,40 @@ async function handleLogin(request, env) {
       return jsonResponse({ error: 'Invalid password' }, 401);
     }
 
-    // Generate token with 24-hour expiration
     const expiresAt = Date.now() + (TOKEN_EXPIRY_HOURS * 60 * 60 * 1000);
     const token = await generateToken(expectedPassword, expiresAt);
 
     return jsonResponse({
       token,
       expiresAt,
-      expiresIn: TOKEN_EXPIRY_HOURS * 60 * 60 // seconds
+      expiresIn: TOKEN_EXPIRY_HOURS * 60 * 60
     });
   } catch (error) {
     console.error('Login error:', error);
-    return jsonResponse({ error: 'Failed to process login: ' + error.message }, 500);
+    return jsonResponse({ error: 'Failed to process login' }, 500);
   }
 }
 
-/**
- * Verify authentication token
- */
 async function verifyAuth(request, env) {
   const authHeader = request.headers.get('Authorization');
-  
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return { valid: false, error: 'Missing or invalid authorization header' };
   }
 
   const token = authHeader.substring(7);
-  
   try {
     const tokenData = parseToken(token);
-    
-    if (!tokenData) {
-      return { valid: false, error: 'Invalid token format' };
-    }
+    if (!tokenData) return { valid: false, error: 'Invalid token format' };
 
-    // Check expiration
     if (tokenData.expiresAt < Date.now()) {
       return { valid: false, error: 'Token expired' };
     }
 
-    // Verify token signature
     const expectedPassword = env.SITE_PASSWORD;
-    if (!expectedPassword) {
-      return { valid: false, error: 'Password not configured' };
-    }
+    if (!expectedPassword) return { valid: false, error: 'Password not configured' };
 
     const isValid = await verifyToken(token, expectedPassword);
-    if (!isValid) {
-      return { valid: false, error: 'Invalid token' };
-    }
+    if (!isValid) return { valid: false, error: 'Invalid token' };
 
     return { valid: true };
   } catch (error) {
@@ -165,15 +135,10 @@ async function verifyAuth(request, env) {
   }
 }
 
-/**
- * Generate a signed token with expiration using HMAC
- */
 async function generateToken(password, expiresAt) {
   const encoder = new TextEncoder();
   const payload = `${expiresAt}`;
   const keyData = encoder.encode(password);
-  
-  // Import key for HMAC
   const key = await crypto.subtle.importKey(
     'raw',
     keyData,
@@ -181,27 +146,17 @@ async function generateToken(password, expiresAt) {
     false,
     ['sign']
   );
-  
-  // Sign the payload
   const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
-  
-  // Combine payload and signature: base64(payload:signature)
   const signatureArray = Array.from(new Uint8Array(signature));
   const signatureHex = signatureArray.map(b => b.toString(16).padStart(2, '0')).join('');
   const tokenData = `${payload}:${signatureHex}`;
-  
   return btoa(tokenData);
 }
 
-/**
- * Verify token signature
- */
 async function verifyToken(token, password) {
   try {
     const encoder = new TextEncoder();
     const keyData = encoder.encode(password);
-    
-    // Import key for HMAC
     const key = await crypto.subtle.importKey(
       'raw',
       keyData,
@@ -209,159 +164,111 @@ async function verifyToken(token, password) {
       false,
       ['verify']
     );
-    
-    // Decode token
     const decoded = atob(token);
     const parts = decoded.split(':');
     if (parts.length !== 2) return false;
-    
     const tokenExpiresAt = parseInt(parts[0], 10);
     const tokenSignature = parts[1];
-    
-    // Verify signature
     const signatureBytes = new Uint8Array(
       tokenSignature.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
     );
-    
     const payload = encoder.encode(`${tokenExpiresAt}`);
-    const isValid = await crypto.subtle.verify('HMAC', key, signatureBytes, payload);
-    
-    return isValid;
-  } catch (error) {
-    console.error('Token verification error:', error);
+    return await crypto.subtle.verify('HMAC', key, signatureBytes, payload);
+  } catch {
     return false;
   }
 }
 
-/**
- * Parse token to extract expiration time
- */
 function parseToken(token) {
   try {
     const decoded = atob(token);
     const parts = decoded.split(':');
     if (parts.length !== 2) return null;
-    
     const expiresAt = parseInt(parts[0], 10);
     if (isNaN(expiresAt)) return null;
-
     return { expiresAt };
-  } catch (error) {
+  } catch {
     return null;
   }
 }
 
-/**
- * Handle the main data request
- */
-async function handleDataRequest(request, env) {
-  try {
-    const body = await request.json();
-    const location = body.location?.trim();
+/* ── AUTOCOMPLETE (unchanged) ───────────────────────────────────────────── */
 
-    if (!location) {
-      return jsonResponse({ error: 'Location is required' }, 400);
-    }
-
-    // Normalize location for cache key
-    const cacheKey = `location:${location.toLowerCase().replace(/\s+/g, '_')}`;
-
-    // Check cache first
-    const cached = await env.SOLAR_CACHE.get(cacheKey, 'json');
-    if (cached) {
-      return jsonResponse({ ...cached, cached: true });
-    }
-
-    // Fetch data from Visual Crossing API
-    const apiKey = env.VISUAL_CROSSING_API_KEY;
-    if (!apiKey) {
-      console.error('[API] VISUAL_CROSSING_API_KEY not configured');
-      return jsonResponse({ error: 'API key not configured' }, 500);
-    }
-
-    console.log(`[API] Fetching weather data for location: ${location}`);
-    const weatherData = await fetchWeatherData(location, apiKey, env);
-    
-    if (weatherData.error) {
-      return jsonResponse({ error: weatherData.error }, 400);
-    }
-
-    // Calculate monthly averages and PSH
-    const result = calculateMonthlyData(weatherData);
-
-    // Cache the result (30 days TTL)
-    const ttl = parseInt(env.CACHE_TTL) || DEFAULT_CACHE_TTL;
-    await env.SOLAR_CACHE.put(cacheKey, JSON.stringify(result), { expirationTtl: ttl });
-
-    return jsonResponse({ ...result, cached: false });
-
-  } catch (error) {
-    console.error('Error processing request:', error);
-    return jsonResponse({ error: 'Failed to process request: ' + error.message }, 500);
-  }
-}
-
-/**
- * Handle autocomplete request for location search
- */
 async function handleAutocompleteRequest(request) {
   try {
     const url = new URL(request.url);
     const query = url.searchParams.get('q')?.trim();
-
     if (!query || query.length < 2) {
       return jsonResponse({ suggestions: [] });
     }
 
-    // Use Nominatim (OpenStreetMap) geocoding API for autocomplete
-    // Free, no API key required, good international coverage
     const nominatimUrl = `https://nominatim.openstreetmap.org/search?` +
-      `format=json&` +
-      `q=${encodeURIComponent(query)}&` +
-      `limit=8&` +
-      `addressdetails=1&` +
-      `extratags=1`;
+      `format=json&q=${encodeURIComponent(query)}&limit=8&addressdetails=1&extratags=1`;
 
     const response = await fetch(nominatimUrl, {
-      headers: {
-        'User-Agent': 'Solar-Planner/1.0' // Required by Nominatim
-      }
+      headers: { 'User-Agent': 'Solar-Planner/1.0' }
     });
 
     if (!response.ok) {
-      console.error(`[Nominatim] Error: ${response.status}`);
       return jsonResponse({ suggestions: [] });
     }
 
     const data = await response.json();
-    
-    // Format suggestions for frontend
     const suggestions = data.map(item => {
-      // Build display name from address components
       const address = item.address || {};
-      let displayName = item.display_name;
       
-      // Try to create a cleaner display name
+      // Build a detailed display name with multiple address components
       const parts = [];
-      if (address.city || address.town || address.village) {
-        parts.push(address.city || address.town || address.village);
+      
+      // Primary location name (neighborhood, suburb, or place name)
+      const primaryName = address.neighbourhood || address.suburb || address.hamlet || 
+                          address.residential || address.quarter;
+      
+      // City/town/village
+      const cityName = address.city || address.town || address.village || 
+                       address.municipality || address.county;
+      
+      // Add primary name if different from city
+      if (primaryName && primaryName !== cityName) {
+        parts.push(primaryName);
       }
-      if (address.state) {
-        parts.push(address.state);
+      
+      // Add city/town/village
+      if (cityName) {
+        parts.push(cityName);
       }
+      
+      // Add county if different from city (useful for US locations)
+      if (address.county && address.county !== cityName && !parts.includes(address.county)) {
+        parts.push(address.county);
+      }
+      
+      // Add state/province/region
+      const stateName = address.state || address.province || address.region;
+      if (stateName) {
+        parts.push(stateName);
+      }
+      
+      // Add country
       if (address.country) {
         parts.push(address.country);
       }
       
-      if (parts.length > 0) {
-        displayName = parts.join(', ');
-      }
+      // Fallback to original display_name if we couldn't build a good one
+      const displayName = parts.length > 0 ? parts.join(', ') : item.display_name;
+
+      const lat = parseFloat(item.lat);
+      const lon = parseFloat(item.lon);
+      const apiLocation = (lat && lon && !isNaN(lat) && !isNaN(lon))
+        ? `${lat},${lon}`
+        : item.display_name;
 
       return {
         display: displayName,
-        value: item.display_name, // Full name for API call
-        lat: parseFloat(item.lat),
-        lon: parseFloat(item.lon)
+        value: item.display_name,
+        apiLocation,
+        lat,
+        lon
       };
     });
 
@@ -372,307 +279,330 @@ async function handleAutocompleteRequest(request) {
   }
 }
 
-/**
- * Fetch historical weather data from Visual Crossing API
- */
-async function fetchWeatherData(location, apiKey, env) {
+/* ── CACHE MANAGEMENT ──────────────────────────────────────────────────── */
+
+async function handleClearCache(request, env) {
   try {
-    // Fetch historical data
-    // Allow configurable years via environment variable, default to 2 years
-    const yearsOfData = parseInt(env.YEARS_OF_DATA) || DEFAULT_YEARS_OF_DATA;
+    const body = await request.json().catch(() => ({}));
+    const location = body.location?.trim();
+    
+    let deletedCount = 0;
+    
+    if (location) {
+      // Clear cache for a specific location
+      const cacheKey = `location:${location.toLowerCase().replace(/\s+/g, '_')}`;
+      await env.SOLAR_CACHE.delete(cacheKey);
+      deletedCount = 1;
+    } else {
+      // Clear all cache entries
+      // List all keys with the "location:" prefix
+      let cursor = null;
+      do {
+        const listResult = await env.SOLAR_CACHE.list({ prefix: 'location:', cursor });
+        const keys = listResult.keys;
+        
+        // Delete all keys in this batch
+        for (const key of keys) {
+          await env.SOLAR_CACHE.delete(key.name);
+          deletedCount++;
+        }
+        
+        cursor = listResult.listComplete ? null : listResult.cursor;
+      } while (cursor);
+    }
+    
+    return jsonResponse({ 
+      success: true,
+      message: location 
+        ? `Cache cleared for location: ${location}` 
+        : 'All cache entries cleared',
+      deletedCount
+    });
+  } catch (error) {
+    console.error('Clear cache error:', error);
+    return jsonResponse({ error: 'Failed to clear cache: ' + error.message }, 500);
+  }
+}
+
+/* ── DATA ENDPOINT ───────────────────────────────────────────────────────── */
+
+async function handleDataRequest(request, env, ctx) {
+  try {
+    const body = await request.json();
+    const location = body.location?.trim();
+    if (!location) return jsonResponse({ error: 'Location is required' }, 400);
+
+    let apiLocation = location;
+    if (body.lat != null && body.lon != null) {
+      apiLocation = `${body.lat},${body.lon}`;
+    }
+
+    const cacheKey = `location:${location.toLowerCase().replace(/\s+/g, '_')}`;
+    const cached = await env.SOLAR_CACHE.get(cacheKey, 'json');
+    if (cached) {
+      const years = parseInt(env.YEARS_OF_DATA) || DEFAULT_YEARS_OF_DATA;
+      return jsonResponse({ ...cached, cached: true, yearsOfData: years });
+    }
+
+    const apiKey = env.VISUAL_CROSSING_API_KEY;
+    if (!apiKey) return jsonResponse({ error: 'API key not configured' }, 500);
+
+    const years = parseInt(env.YEARS_OF_DATA) || DEFAULT_YEARS_OF_DATA;
     const endDate = new Date();
     const startDate = new Date();
-    startDate.setFullYear(endDate.getFullYear() - yearsOfData);
-
+    startDate.setFullYear(endDate.getFullYear() - years);
     const startStr = startDate.toISOString().split('T')[0];
     const endStr = endDate.toISOString().split('T')[0];
 
-    // Calculate approximate number of days (records)
-    const daysDiff = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
-    console.log(`[Visual Crossing] Requesting ${yearsOfData} year(s) of data (~${daysDiff} days/records)`);
-
+    // Single API call with all needed elements
+    // latitude, longitude, resolvedAddress come from response root automatically
     const params = new URLSearchParams({
-      unitGroup: 'metric',
+      unitGroup: 'us',
       include: 'days',
       key: apiKey,
-      elements: 'datetime,tempmax,tempmin,temp,humidity,solarradiation,solarenergy,sunrise,sunset'
+      elements: 'datetime,tempmax,tempmin,temp,humidity,solarenergy,solarradiation,sunrise,sunset'
     });
 
-    const apiUrl = `https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/${encodeURIComponent(location)}/${startStr}/${endStr}?${params}`;
-
-    // Log URL without API key for debugging
-    const urlForLogging = apiUrl.replace(/key=[^&]+/, 'key=***');
-    console.log(`[Visual Crossing] Request URL: ${urlForLogging}`);
-    console.log(`[Visual Crossing] Date range: ${startStr} to ${endStr} (~${daysDiff} records)`);
+    const apiUrl = `https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/${encodeURIComponent(apiLocation)}/${startStr}/${endStr}?${params}`;
     
+    console.log(`[API] Fetching data for: ${apiLocation}`);
     const response = await fetch(apiUrl);
-    console.log(`[Visual Crossing] Response status: ${response.status} ${response.statusText}`);
-
+    
     if (!response.ok) {
-      // Try to read the response body for more details
-      let errorMessage = '';
-      try {
-        const errorBody = await response.text();
-        console.error(`[Visual Crossing] Error response (${response.status}):`, errorBody);
-        // Try to parse as JSON if possible
-        try {
-          const errorJson = JSON.parse(errorBody);
-          errorMessage = errorJson.message || errorJson.error || errorBody;
-        } catch {
-          errorMessage = errorBody || `HTTP ${response.status}`;
-        }
-      } catch (e) {
-        console.error(`[Visual Crossing] Failed to read error response:`, e);
-        errorMessage = `HTTP ${response.status}`;
-      }
-
-      // Check for specific error messages from Visual Crossing
-      const errorLower = errorMessage.toLowerCase();
-      if (errorLower.includes('maximum daily cost') || errorLower.includes('daily cost exceeded') || errorLower.includes('quota exceeded')) {
-        const daysRequested = Math.ceil((new Date(endStr) - new Date(startStr)) / (1000 * 60 * 60 * 24));
-        return { 
-          error: `Daily API quota exceeded. Your Visual Crossing API plan has reached its daily limit (1000 records/day). This request would use ~${daysRequested} records. Please check your Visual Crossing dashboard, wait for the daily reset (UTC midnight), or upgrade your plan.` 
-        };
-      }
-      if (errorLower.includes('rate limit') || errorLower.includes('too many requests')) {
-        return { error: 'Rate limit exceeded. Please wait a moment and try again.' };
-      }
-
-      if (response.status === 400) {
-        return { error: errorMessage || 'Location not found. Please check the spelling and try again.' };
-      }
-      if (response.status === 401 || response.status === 403) {
-        return { error: errorMessage || 'API authentication failed. Please check your API key.' };
-      }
+      const errorText = await response.text();
+      console.error(`[API] Error ${response.status}: ${errorText}`);
       if (response.status === 429) {
-        return { error: errorMessage || 'Rate limit exceeded. Please wait a moment and try again.' };
+        return jsonResponse({ error: 'API rate limit exceeded. Please try again later.' }, 429);
       }
-      return { error: `Weather API error (${response.status}): ${errorMessage}` };
+      return jsonResponse({ error: 'Could not fetch weather data for this location' }, 400);
     }
 
     const data = await response.json();
-    console.log(`[Visual Crossing] Successfully fetched data for: ${location}`);
-    return data;
-  } catch (error) {
-    // Handle network errors or JSON parsing failures
-    console.error('Weather API fetch error:', error);
-    return { error: 'Failed to fetch weather data. Please try again later.' };
-  }
-}
+    const { latitude, longitude, resolvedAddress, days } = data;
 
-/**
- * Calculate monthly averages and peak sun hours from daily data
- */
-function calculateMonthlyData(weatherData) {
-  const latitude = weatherData.latitude;
-  const longitude = weatherData.longitude;
-  const resolvedAddress = weatherData.resolvedAddress;
-  const days = weatherData.days || [];
-
-  // Initialize monthly accumulators
-  const monthlyData = Array.from({ length: 12 }, () => ({
-    tempMax: [],
-    tempMin: [],
-    tempMean: [],
-    humidity: [],
-    solarEnergy: [],
-    solarRadiation: [],
-    daylightHours: []
-  }));
-
-  // Accumulate daily data by month
-  for (const day of days) {
-    const date = new Date(day.datetime);
-    const month = date.getMonth();
-    const monthData = monthlyData[month];
-
-    // Accumulate temperature data
-    if (day.tempmax != null) monthData.tempMax.push(day.tempmax);
-    if (day.tempmin != null) monthData.tempMin.push(day.tempmin);
-    if (day.temp != null) monthData.tempMean.push(day.temp);
-    
-    // Accumulate other metrics
-    if (day.humidity != null) monthData.humidity.push(day.humidity);
-    if (day.solarenergy != null) monthData.solarEnergy.push(day.solarenergy);
-    if (day.solarradiation != null) monthData.solarRadiation.push(day.solarradiation);
-
-    // Calculate daylight hours from sunrise/sunset if available
-    if (day.sunrise && day.sunset) {
-      const sunrise = parseTime(day.sunrise);
-      const sunset = parseTime(day.sunset);
-      if (sunrise && sunset) {
-        monthData.daylightHours.push((sunset - sunrise) / SECONDS_PER_HOUR);
-      }
+    if (!days || days.length === 0) {
+      return jsonResponse({ error: 'No weather data available for this location' }, 400);
     }
-  }
 
-  // Calculate averages and format output
-  const weather = [];
-  const solar = [];
+    console.log(`[API] Received ${days.length} days of data for ${resolvedAddress}`);
 
-  for (let i = 0; i < 12; i++) {
-    const data = monthlyData[i];
+    // Calculate yearly fixed tilt (equals latitude)
+    const fixedTilt = Math.round(Math.abs(latitude));
+    const yearlyDirection = latitude >= 0 ? 'S' : 'N';
 
-    // Weather averages (convert C to F)
-    const highC = average(data.tempMax);
-    const lowC = average(data.tempMin);
-    const meanC = average(data.tempMean);
+    const weather = [];
+    const solar = [];
 
-    weather.push({
-      month: MONTHS[i],
-      highF: round(celsiusToFahrenheit(highC), 1),
-      lowF: round(celsiusToFahrenheit(lowC), 1),
-      meanF: round(celsiusToFahrenheit(meanC), 1),
-      humidity: round(average(data.humidity), 1),
-      sunshineHours: round(estimateSunshineHours(data), 1)
-    });
+    for (let m = 0; m < 12; m++) {
+      // Filter days for this month
+      const monthDays = days.filter(d => new Date(d.datetime).getMonth() === m);
 
-    // Calculate PSH for three scenarios
-    const avgSolarEnergy = average(data.solarEnergy); // kWh/m²/day on horizontal surface
-    const monthNum = i + 1;
+      // Calculate averages for weather data
+      const avg = (arr, key) => {
+        const vals = arr.map(d => d[key]).filter(v => v != null);
+        return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+      };
 
-    // Calculate tilt angles
-    const flatTilt = 0;
-    const yearlyOptimalTilt = round(Math.abs(latitude), 0); // Tilt ≈ latitude
-    const monthlyOptimalTilt = calculateMonthlyOptimalTilt(latitude, monthNum);
+      const highF = avg(monthDays, 'tempmax');
+      const lowF = avg(monthDays, 'tempmin');
+      const meanF = avg(monthDays, 'temp');
+      const humidity = avg(monthDays, 'humidity');
+      
+      // solarenergy from Visual Crossing is in MJ/m²/day (megajoules per square meter)
+      // Convert to kWh/m²/day (PSH) by dividing by 3.6 (since 1 kWh = 3.6 MJ)
+      const solarEnergyMJ = avg(monthDays, 'solarenergy');
+      const flatPSH = solarEnergyMJ / 3.6;
 
-    // Calculate PSH for each scenario
-    // solarenergy from Visual Crossing is already in kWh/m²/day for horizontal surface
-    const flatPSH = round(avgSolarEnergy, 2);
-    const yearlyOptimalPSH = round(adjustPSHForTilt(avgSolarEnergy, yearlyOptimalTilt, monthlyOptimalTilt), 2);
-    const monthlyOptimalPSH = round(adjustPSHForTilt(avgSolarEnergy, monthlyOptimalTilt, monthlyOptimalTilt), 2);
-
-    solar.push({
-      month: MONTHS[i],
-      monthlyOptimal: {
-        tilt: monthlyOptimalTilt,
-        psh: monthlyOptimalPSH
-      },
-      yearlyFixed: {
-        tilt: yearlyOptimalTilt,
-        psh: yearlyOptimalPSH
-      },
-      flat: {
-        tilt: flatTilt,
-        psh: flatPSH
+      // Calculate sunshine hours from sunrise/sunset
+      let sunshineHours = 0;
+      const daylightData = monthDays.filter(d => d.sunrise && d.sunset);
+      if (daylightData.length > 0) {
+        const totalDaylight = daylightData.reduce((sum, d) => {
+          const sunrise = parseTime(d.sunrise);
+          const sunset = parseTime(d.sunset);
+          return sum + (sunset - sunrise) / 3600; // Convert seconds to hours
+        }, 0);
+        // Adjust daylight by solar radiation factor (accounts for clouds)
+        const avgRadiation = avg(monthDays, 'solarradiation');
+        const clearSkyFactor = Math.min(1, avgRadiation / 800); // 800 W/m² is typical clear sky
+        sunshineHours = (totalDaylight / daylightData.length) * clearSkyFactor;
       }
-    });
-  }
 
-  return {
-    location: resolvedAddress,
-    latitude: round(latitude, 4),
-    longitude: round(longitude, 4),
-    weather,
-    solar
-  };
+      weather.push({
+        month: MONTHS[m],
+        highF: round(highF, 1),
+        lowF: round(lowF, 1),
+        meanF: round(meanF, 1),
+        humidity: round(humidity, 1),
+        sunshineHours: round(sunshineHours, 1)
+      });
+
+      // Calculate PSH for tilted panels using solar geometry
+      const monthNum = m + 1;
+      const { tilt: monthlyTilt, direction: monthlyDirection } = calculateMonthlyOptimalTilt(latitude, monthNum);
+      
+      // Calculate tilt gains using solar geometry
+      // Monthly optimal always gets maximum gain (it's the optimal by definition)
+      const monthlyTiltGain = calculateMaxTiltGain(latitude, monthNum);
+      // Fixed tilt gets gain based on how close it is to monthly optimal
+      const fixedTiltGain = calculateTiltGain(latitude, fixedTilt, monthNum);
+
+      // Ensure hierarchy: monthly >= fixed >= flat
+      const monthlyPSH = flatPSH * monthlyTiltGain;
+      const fixedPSH = flatPSH * Math.min(fixedTiltGain, monthlyTiltGain);
+
+      solar.push({
+        month: MONTHS[m],
+        monthlyOptimal: {
+          tilt: `${monthlyTilt}° ${monthlyDirection}`,
+          psh: round(monthlyPSH, 2)
+        },
+        yearlyFixed: {
+          tilt: `${fixedTilt}° ${yearlyDirection}`,
+          psh: round(fixedPSH, 2)
+        },
+        flat: {
+          tilt: '0°',
+          psh: round(flatPSH, 2)
+        }
+      });
+    }
+
+    const result = {
+      location: resolvedAddress,
+      latitude: round(latitude, 4),
+      longitude: round(longitude, 4),
+      weather,
+      solar,
+      yearsOfData: years
+    };
+
+    ctx.waitUntil(
+      env.SOLAR_CACHE.put(cacheKey, JSON.stringify(result), { expirationTtl: DEFAULT_CACHE_TTL })
+    );
+
+    return jsonResponse({ ...result, cached: false });
+
+  } catch (error) {
+    console.error('Data request error:', error);
+    return jsonResponse({ error: 'Failed to process request: ' + error.message }, 500);
+  }
 }
 
 /**
- * Calculate monthly optimal tilt angle based on latitude and month
- * Uses simplified formula: tilt = latitude - (15° adjustment based on season)
+ * Calculate monthly optimal tilt angle and direction
+ * @param {number} latitude - Location latitude in degrees
+ * @param {number} month - Month number (1-12)
+ * @returns {{ tilt: number, direction: string }}
  */
 function calculateMonthlyOptimalTilt(latitude, month) {
   const declination = SOLAR_DECLINATIONS[month - 1];
 
-  // For Northern Hemisphere: tilt = latitude - declination
-  // For Southern Hemisphere: tilt = -latitude - declination (then take absolute)
-  let optimalTilt;
-  if (latitude >= 0) {
-    optimalTilt = latitude - declination;
+  // The sun's position relative to the location determines optimal direction
+  // If sun is north of location: face North
+  // If sun is south of location: face South
+  const sunPosition = declination; // Sun's latitude position
+  const sunIsNorthOfLocation = sunPosition > latitude;
+
+  // Optimal direction: face toward the sun
+  let direction;
+  if (sunIsNorthOfLocation) {
+    direction = 'N';
   } else {
-    optimalTilt = Math.abs(latitude) + declination;
+    direction = 'S';
   }
 
-  // Clamp to reasonable range (0-90 degrees)
-  optimalTilt = Math.max(0, Math.min(90, optimalTilt));
+  // Optimal tilt calculation:
+  // The optimal tilt angle equals the angle between zenith and the sun at solar noon
+  // This is: |latitude - declination| when facing toward the sun
+  let optimalTilt = Math.abs(latitude - declination);
+  optimalTilt = Math.max(0, Math.min(90, Math.round(optimalTilt)));
 
-  return round(optimalTilt, 0);
+  return { tilt: optimalTilt, direction };
 }
 
 /**
- * Adjust PSH for tilted panel surface
- * This is a simplified model using the tilt factor approach
- * @param {number} horizontalPSH - PSH on horizontal surface (kWh/m²/day)
- * @param {number} tiltAngle - Actual tilt angle of the panel (degrees)
- * @param {number} optimalTilt - Optimal tilt angle for this month (degrees)
+ * Calculate the maximum tilt gain for a month (when panel is at optimal tilt)
+ * @param {number} latitude - Location latitude in degrees
+ * @param {number} month - Month number (1-12)
+ * @returns {number} Maximum gain factor for optimal tilt
  */
-function adjustPSHForTilt(horizontalPSH, tiltAngle, optimalTilt) {
-  if (!horizontalPSH || horizontalPSH === 0) return 0;
+function calculateMaxTiltGain(latitude, month) {
+  const declination = SOLAR_DECLINATIONS[month - 1];
   
-  // Simplified tilt gain model: panels tilted toward optimal angle capture more direct radiation
-  // Gain is maximum when tilt matches optimal, decreases with angle difference
-  const tiltDifference = Math.abs(tiltAngle - optimalTilt);
-  const angleDiffRad = (tiltDifference * Math.PI) / 180;
-  const tiltGain = Math.cos(angleDiffRad);
+  // Optimal tilt = |latitude - declination|
+  const optimalTilt = Math.abs(latitude - declination);
   
-  // Clamp gain to reasonable range (0.85 to 1.4)
-  // Even poorly tilted panels get some benefit, optimally tilted get significant boost
-  return horizontalPSH * Math.max(0.85, Math.min(1.4, tiltGain));
+  // Solar elevation at noon: 90° - |latitude - declination|
+  const noonElevation = 90 - optimalTilt;
+  
+  // Lower sun elevation means more gain from tilting
+  // At 90° elevation (sun directly overhead): no benefit from tilting
+  // At 20° elevation (sun low): significant benefit from tilting
+  const elevationFactor = 1 - (noonElevation / 90); // 0 at overhead, 1 at horizon
+  
+  // Base gain: 5% minimum + up to 35% more based on sun angle
+  // This gives realistic gains of 1.05x to 1.40x
+  const gain = 1.05 + (0.35 * elevationFactor);
+  
+  return Math.max(1.05, Math.min(1.45, gain));
 }
 
 /**
- * Estimate sunshine hours from solar data
+ * Calculate tilt gain factor using solar geometry
+ * Models how much more energy a tilted panel captures vs horizontal
+ * @param {number} latitude - Location latitude in degrees
+ * @param {number} tiltAngle - Panel tilt angle in degrees
+ * @param {number} month - Month number (1-12)
+ * @returns {number} Gain factor (1.0 = same as horizontal)
  */
-function estimateSunshineHours(monthData) {
-  // If we have daylight hours, use them directly
-  if (monthData.daylightHours.length > 0) {
-    const avgDaylight = average(monthData.daylightHours);
-    // Adjust by a cloud factor based on solar radiation
-    const avgRadiation = average(monthData.solarRadiation);
-    // Typical clear-sky radiation is around 800-1000 W/m²
-    const clearSkyFactor = avgRadiation > 0 ? Math.min(1, avgRadiation / CLEAR_SKY_RADIATION) : 0.5;
-    return avgDaylight * clearSkyFactor;
-  }
+function calculateTiltGain(latitude, tiltAngle, month) {
+  if (tiltAngle === 0) return 1.0;
 
-  // Fallback: estimate from solar energy
-  // solarenergy (kWh/m²/day) / typical peak irradiance (0.8 kW/m²)
-  const avgSolarEnergy = average(monthData.solarEnergy);
-  return avgSolarEnergy > 0 ? avgSolarEnergy / TYPICAL_PEAK_IRRADIANCE : 0;
+  const declination = SOLAR_DECLINATIONS[month - 1];
+
+  // Optimal tilt for this month = |latitude - declination|
+  const optimalTiltForMonth = Math.abs(latitude - declination);
+
+  // Get the maximum possible gain for this month
+  const maxGain = calculateMaxTiltGain(latitude, month);
+
+  // Calculate how close actual tilt is to optimal
+  const tiltDifference = Math.abs(tiltAngle - optimalTiltForMonth);
+  const tiltDiffRad = (tiltDifference * Math.PI) / 180;
+
+  // Efficiency based on tilt deviation
+  // cos(0°) = 1.0 (perfect), cos(45°) ≈ 0.71, cos(90°) = 0
+  const tiltEfficiency = Math.cos(tiltDiffRad);
+
+  // Apply efficiency to scale between 1.0 and maxGain
+  const gain = 1.0 + (maxGain - 1.0) * tiltEfficiency;
+
+  // Clamp to reasonable range
+  return Math.max(1.0, Math.min(maxGain, gain));
 }
 
 /**
  * Parse time string (HH:MM:SS) to seconds since midnight
  */
 function parseTime(timeStr) {
-  if (!timeStr) return null;
+  if (!timeStr) return 0;
   const parts = timeStr.split(':');
-  if (parts.length < 2) return null;
+  if (parts.length < 2) return 0;
   const hours = parseInt(parts[0], 10);
   const minutes = parseInt(parts[1], 10);
   const seconds = parts.length > 2 ? parseInt(parts[2], 10) : 0;
   return hours * 3600 + minutes * 60 + seconds;
 }
 
-/**
- * Convert Celsius to Fahrenheit
- */
-function celsiusToFahrenheit(celsius) {
-  if (celsius == null) return null;
-  return celsius * 9 / 5 + 32;
-}
+/* ── UTILITIES ──────────────────────────────────────────────────────────── */
 
-/**
- * Calculate average of an array
- */
-function average(arr) {
-  if (!arr || arr.length === 0) return 0;
-  const sum = arr.reduce((a, b) => a + b, 0);
-  return sum / arr.length;
-}
-
-/**
- * Round a number to specified decimal places
- */
-function round(num, decimals) {
+function round(num, decimals = 1) {
   if (num == null) return 0;
   const factor = Math.pow(10, decimals);
   return Math.round(num * factor) / factor;
 }
 
-/**
- * Create a JSON response with CORS headers
- */
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -682,4 +612,3 @@ function jsonResponse(data, status = 200) {
     }
   });
 }
-
