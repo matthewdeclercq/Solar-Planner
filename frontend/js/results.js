@@ -1,0 +1,54 @@
+/**
+ * Results display module
+ */
+
+import { resolvedLocationEl, coordinatesEl, yearsInfoEl, cacheInfoEl, clearCacheBtn, solarGraphToggle, querySelector } from './dom.js';
+import { renderWeatherTable, renderSolarTable } from './tables.js';
+import { renderWeatherChart, renderSolarChart, renderSolarTiltChart } from './charts.js';
+import { showResults } from './ui.js';
+
+/**
+ * Display the results
+ * @param {Object} data - The data from the API
+ * @param {string} cacheKeyLocation - The original location used to create the cache key
+ */
+export function displayResults(data, cacheKeyLocation) {
+  // Update location info
+  resolvedLocationEl.textContent = data.location;
+  coordinatesEl.textContent = `${data.latitude}°, ${data.longitude}°`;
+  
+  // Display years of data
+  const years = data.yearsOfData || 2;
+  yearsInfoEl.textContent = `Averaging ${years} ${years === 1 ? 'year' : 'years'} of historical data`;
+  
+  // Show cache status
+  if (data.cached) {
+    cacheInfoEl.textContent = '✓ Loaded from cache';
+    cacheInfoEl.classList.add('cached');
+  } else {
+    cacheInfoEl.textContent = 'Fresh data fetched';
+    cacheInfoEl.classList.remove('cached');
+  }
+  
+  // Render tables
+  renderWeatherTable(data.weather);
+  renderSolarTable(data.solar);
+  
+  // Render charts
+  renderWeatherChart(data.weather);
+  renderSolarChart(data.solar);
+  renderSolarTiltChart(data.solar);
+  
+  // Show solar graph toggle if solar section is in graph view (default state)
+  const solarGraphView = querySelector('[data-section="solar"][data-view="graph"].view-content');
+  if (solarGraphView && !solarGraphView.classList.contains('hidden')) {
+    if (solarGraphToggle) solarGraphToggle.style.display = 'flex';
+  }
+  
+  // Store the original input location used for cache key (not the resolved address)
+  // This ensures cache clearing uses the same key that was used for caching
+  clearCacheBtn.dataset.currentLocation = cacheKeyLocation || data.location;
+  
+  showResults();
+}
+

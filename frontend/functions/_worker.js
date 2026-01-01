@@ -3,7 +3,7 @@
  * Proxies /api/* requests to the solar-planner-api worker
  */
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     
     // Handle CORS preflight requests
@@ -37,20 +37,10 @@ export default {
       }
       
       // Forward the request to the bound worker
-      // The Request constructor will properly handle the body stream
       try {
-        const forwardedRequest = new Request(request.url, {
-          method: request.method,
-          headers: request.headers,
-          body: request.body,
-          redirect: request.redirect,
-          cf: request.cf
-        });
-        
-        const response = await env.SOLAR_PLANNER_API.fetch(forwardedRequest);
+        const response = await env.SOLAR_PLANNER_API.fetch(request);
         return response;
       } catch (error) {
-        console.error('Error forwarding request to worker:', error);
         return new Response(JSON.stringify({ 
           error: 'Failed to forward request to worker',
           message: error.message

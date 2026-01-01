@@ -4,24 +4,19 @@
  * Full monthly North/South direction support added
  */
 
-// Allowed origins for CORS
+// Allowed origins for CORS (normalized - trailing slashes removed)
 const ALLOWED_ORIGINS = [
   'https://solar-planner.coppertech.co',
-  'https://solar-planner.coppertech.co/',
   'https://solar-planner.pages.dev',
-  'https://solar-planner.pages.dev/',
   'http://localhost:3000',
   'http://localhost:8080',
   'http://127.0.0.1:3000',
   'http://127.0.0.1:8080'
-];
+].map(origin => origin.replace(/\/$/, ''));
 
 function getCorsHeaders(origin) {
-  const isAllowed = origin && ALLOWED_ORIGINS.some(allowed => {
-    const normalizedOrigin = origin.replace(/\/$/, ''); // Remove trailing slash
-    const normalizedAllowed = allowed.replace(/\/$/, ''); // Remove trailing slash
-    return normalizedOrigin === normalizedAllowed;
-  });
+  const normalizedOrigin = origin ? origin.replace(/\/$/, '') : null;
+  const isAllowed = normalizedOrigin && ALLOWED_ORIGINS.includes(normalizedOrigin);
   
   return {
     'Access-Control-Allow-Origin': isAllowed ? origin : ALLOWED_ORIGINS[0],
@@ -39,6 +34,10 @@ const SOLAR_DECLINATIONS = [-20.9, -13.0, -2.4, 9.4, 18.8, 23.1, 21.2, 13.5, 2.2
 const DEFAULT_YEARS_OF_DATA = 2;
 const DEFAULT_CACHE_TTL = 2592000; // 30 days
 const TOKEN_EXPIRY_HOURS = 24;
+
+// Conversion constants
+const MJ_TO_KWH = 3.6; // 1 kWh = 3.6 MJ
+const CLEAR_SKY_RADIATION = 800; // W/m² typical clear sky radiation
 
 export default {
   async fetch(request, env, ctx) {
@@ -126,7 +125,6 @@ async function handleLogin(request, env, corsHeaders) {
       expiresIn: TOKEN_EXPIRY_HOURS * 60 * 60
     }, 200, corsHeaders);
   } catch (error) {
-    console.error('Login error:', error);
     return jsonResponse({ error: 'Failed to process login' }, 500, corsHeaders);
   }
 }
@@ -154,7 +152,6 @@ async function verifyAuth(request, env) {
 
     return { valid: true };
   } catch (error) {
-    console.error('Auth verification error:', error);
     return { valid: false, error: 'Token verification failed' };
   }
 }
@@ -193,8 +190,11 @@ async function verifyToken(token, password) {
     if (parts.length !== 2) return false;
     const tokenExpiresAt = parseInt(parts[0], 10);
     const tokenSignature = parts[1];
+    if (!tokenSignature || tokenSignature.length % 2 !== 0) return false;
+    const hexMatches = tokenSignature.match(/.{1,2}/g);
+    if (!hexMatches) return false;
     const signatureBytes = new Uint8Array(
-      tokenSignature.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
+      hexMatches.map(byte => parseInt(byte, 16))
     );
     const payload = encoder.encode(`${tokenExpiresAt}`);
     return await crypto.subtle.verify('HMAC', key, signatureBytes, payload);
@@ -242,40 +242,22 @@ async function handleAutocompleteRequest(request, corsHeaders) {
       const address = item.address || {};
       
       // Build a detailed display name with multiple address components
+      const addressFields = [
+        address.neighbourhood || address.suburb || address.hamlet || address.residential || address.quarter,
+        address.city || address.town || address.village || address.municipality || address.county,
+        address.county,
+        address.state || address.province || address.region,
+        address.country
+      ];
+      
+      // Filter out duplicates and empty values, keeping order
       const parts = [];
-      
-      // Primary location name (neighborhood, suburb, or place name)
-      const primaryName = address.neighbourhood || address.suburb || address.hamlet || 
-                          address.residential || address.quarter;
-      
-      // City/town/village
-      const cityName = address.city || address.town || address.village || 
-                       address.municipality || address.county;
-      
-      // Add primary name if different from city
-      if (primaryName && primaryName !== cityName) {
-        parts.push(primaryName);
-      }
-      
-      // Add city/town/village
-      if (cityName) {
-        parts.push(cityName);
-      }
-      
-      // Add county if different from city (useful for US locations)
-      if (address.county && address.county !== cityName && !parts.includes(address.county)) {
-        parts.push(address.county);
-      }
-      
-      // Add state/province/region
-      const stateName = address.state || address.province || address.region;
-      if (stateName) {
-        parts.push(stateName);
-      }
-      
-      // Add country
-      if (address.country) {
-        parts.push(address.country);
+      const seen = new Set();
+      for (const field of addressFields) {
+        if (field && !seen.has(field)) {
+          seen.add(field);
+          parts.push(field);
+        }
       }
       
       // Fallback to original display_name if we couldn't build a good one
@@ -298,12 +280,18 @@ async function handleAutocompleteRequest(request, corsHeaders) {
 
     return jsonResponse({ suggestions }, 200, corsHeaders);
   } catch (error) {
-    console.error('Autocomplete error:', error);
     return jsonResponse({ suggestions: [] }, 200, corsHeaders);
   }
 }
 
 /* ── CACHE MANAGEMENT ──────────────────────────────────────────────────── */
+
+/**
+ * Normalize cache key from location string
+ */
+function normalizeCacheKey(location) {
+  return `location:${location.toLowerCase().replace(/\s+/g, '_')}`;
+}
 
 async function handleClearCache(request, env, corsHeaders) {
   try {
@@ -313,8 +301,8 @@ async function handleClearCache(request, env, corsHeaders) {
     let deletedCount = 0;
     
     if (location) {
-      // Clear cache for a specific location
-      const cacheKey = `location:${location.toLowerCase().replace(/\s+/g, '_')}`;
+      // Clear cache for a specific location (use normalized key)
+      const cacheKey = normalizeCacheKey(location);
       await env.SOLAR_CACHE.delete(cacheKey);
       deletedCount = 1;
     } else {
@@ -325,11 +313,9 @@ async function handleClearCache(request, env, corsHeaders) {
         const listResult = await env.SOLAR_CACHE.list({ prefix: 'location:', cursor });
         const keys = listResult.keys;
         
-        // Delete all keys in this batch
-        for (const key of keys) {
-          await env.SOLAR_CACHE.delete(key.name);
-          deletedCount++;
-        }
+        // Delete all keys in this batch (parallel for better performance)
+        await Promise.all(keys.map(key => env.SOLAR_CACHE.delete(key.name)));
+        deletedCount += keys.length;
         
         cursor = listResult.listComplete ? null : listResult.cursor;
       } while (cursor);
@@ -343,7 +329,6 @@ async function handleClearCache(request, env, corsHeaders) {
       deletedCount
     }, 200, corsHeaders);
   } catch (error) {
-    console.error('Clear cache error:', error);
     return jsonResponse({ error: 'Failed to clear cache: ' + error.message }, 500, corsHeaders);
   }
 }
@@ -361,7 +346,8 @@ async function handleDataRequest(request, env, ctx, corsHeaders) {
       apiLocation = `${body.lat},${body.lon}`;
     }
 
-    const cacheKey = `location:${location.toLowerCase().replace(/\s+/g, '_')}`;
+    // Use apiLocation for cache key to ensure consistency (coordinates preferred)
+    const cacheKey = normalizeCacheKey(apiLocation);
     const cached = await env.SOLAR_CACHE.get(cacheKey, 'json');
     if (cached) {
       const years = parseInt(env.YEARS_OF_DATA) || DEFAULT_YEARS_OF_DATA;
@@ -389,12 +375,9 @@ async function handleDataRequest(request, env, ctx, corsHeaders) {
 
     const apiUrl = `https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/${encodeURIComponent(apiLocation)}/${startStr}/${endStr}?${params}`;
     
-    console.log(`[API] Fetching data for: ${apiLocation}`);
     const response = await fetch(apiUrl);
     
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[API] Error ${response.status}: ${errorText}`);
       if (response.status === 429) {
         return jsonResponse({ error: 'API rate limit exceeded. Please try again later.' }, 429, corsHeaders);
       }
@@ -408,7 +391,10 @@ async function handleDataRequest(request, env, ctx, corsHeaders) {
       return jsonResponse({ error: 'No weather data available for this location' }, 400, corsHeaders);
     }
 
-    console.log(`[API] Received ${days.length} days of data for ${resolvedAddress}`);
+    // Validate latitude/longitude
+    if (latitude == null || longitude == null || isNaN(latitude) || isNaN(longitude)) {
+      return jsonResponse({ error: 'Invalid location coordinates received from API' }, 500, corsHeaders);
+    }
 
     // Calculate yearly fixed tilt (equals latitude)
     const fixedTilt = Math.round(Math.abs(latitude));
@@ -417,15 +403,18 @@ async function handleDataRequest(request, env, ctx, corsHeaders) {
     const weather = [];
     const solar = [];
 
-    for (let m = 0; m < 12; m++) {
-      // Filter days for this month
-      const monthDays = days.filter(d => new Date(d.datetime).getMonth() === m);
+    // Pre-group days by month for better performance
+    const daysByMonth = Array.from({ length: 12 }, () => []);
+    for (const day of days) {
+      const month = new Date(day.datetime).getMonth();
+      if (month >= 0 && month < 12) {
+        daysByMonth[month].push(day);
+      }
+    }
 
-      // Calculate averages for weather data
-      const avg = (arr, key) => {
-        const vals = arr.map(d => d[key]).filter(v => v != null);
-        return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
-      };
+    for (let m = 0; m < 12; m++) {
+      // Use pre-grouped days
+      const monthDays = daysByMonth[m];
 
       const highF = avg(monthDays, 'tempmax');
       const lowF = avg(monthDays, 'tempmin');
@@ -433,9 +422,9 @@ async function handleDataRequest(request, env, ctx, corsHeaders) {
       const humidity = avg(monthDays, 'humidity');
       
       // solarenergy from Visual Crossing is in MJ/m²/day (megajoules per square meter)
-      // Convert to kWh/m²/day (PSH) by dividing by 3.6 (since 1 kWh = 3.6 MJ)
+      // Convert to kWh/m²/day (PSH) by dividing by MJ_TO_KWH
       const solarEnergyMJ = avg(monthDays, 'solarenergy');
-      const flatPSH = solarEnergyMJ / 3.6;
+      const flatPSH = solarEnergyMJ / MJ_TO_KWH;
 
       // Calculate sunshine hours from sunrise/sunset
       let sunshineHours = 0;
@@ -448,7 +437,7 @@ async function handleDataRequest(request, env, ctx, corsHeaders) {
         }, 0);
         // Adjust daylight by solar radiation factor (accounts for clouds)
         const avgRadiation = avg(monthDays, 'solarradiation');
-        const clearSkyFactor = Math.min(1, avgRadiation / 800); // 800 W/m² is typical clear sky
+        const clearSkyFactor = Math.min(1, avgRadiation / CLEAR_SKY_RADIATION);
         sunshineHours = (totalDaylight / daylightData.length) * clearSkyFactor;
       }
 
@@ -501,14 +490,14 @@ async function handleDataRequest(request, env, ctx, corsHeaders) {
       yearsOfData: years
     };
 
+    const cacheTtl = parseInt(env.CACHE_TTL) || DEFAULT_CACHE_TTL;
     ctx.waitUntil(
-      env.SOLAR_CACHE.put(cacheKey, JSON.stringify(result), { expirationTtl: DEFAULT_CACHE_TTL })
+      env.SOLAR_CACHE.put(cacheKey, JSON.stringify(result), { expirationTtl: cacheTtl })
     );
 
     return jsonResponse({ ...result, cached: false }, 200, corsHeaders);
 
   } catch (error) {
-    console.error('Data request error:', error);
     return jsonResponse({ error: 'Failed to process request: ' + error.message }, 500, corsHeaders);
   }
 }
@@ -621,8 +610,25 @@ function parseTime(timeStr) {
 
 /* ── UTILITIES ──────────────────────────────────────────────────────────── */
 
+/**
+ * Calculate average of array values by key (optimized single-pass)
+ */
+function avg(arr, key) {
+  if (!arr || arr.length === 0) return 0;
+  let sum = 0;
+  let count = 0;
+  for (const item of arr) {
+    const val = item[key];
+    if (val != null && !isNaN(val)) {
+      sum += val;
+      count++;
+    }
+  }
+  return count > 0 ? sum / count : 0;
+}
+
 function round(num, decimals = 1) {
-  if (num == null) return 0;
+  if (num == null || isNaN(num)) return 0;
   const factor = Math.pow(10, decimals);
   return Math.round(num * factor) / factor;
 }
