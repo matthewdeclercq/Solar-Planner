@@ -6,7 +6,7 @@
 
 // API endpoints - automatically detect local vs production
 const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-const API_BASE = isLocalDev ? 'http://localhost:8787' : '';
+const API_BASE = isLocalDev ? 'http://localhost:8787' : 'https://solar-planner-api.matthew-declercq.workers.dev';
 const API_URL = `${API_BASE}/api/data`;
 const LOGIN_URL = `${API_BASE}/api/login`;
 const CACHE_CLEAR_URL = `${API_BASE}/api/cache/clear`;
