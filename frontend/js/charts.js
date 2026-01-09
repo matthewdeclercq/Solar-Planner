@@ -5,19 +5,40 @@
 import { weatherChartEl, solarChartEl, solarTiltChartEl } from './dom.js';
 import { createRgbaColor } from './utils.js';
 import { Y_AXIS_PADDING_FACTOR } from './config.js';
+import { getCurrentTheme } from './theme.js';
 
 // Chart instances
 let weatherChart = null;
 let solarChart = null;
 let solarTiltChart = null;
 
+// Store chart data for re-rendering on theme change
+let storedWeatherData = null;
+let storedSolarData = null;
+
 // Chart resize debouncing
 let chartResizeTimeout = null;
 
-// Chart.js default configuration
-Chart.defaults.font.family = "'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-Chart.defaults.color = '#8DA4BE';
-Chart.defaults.borderColor = 'rgba(141, 164, 190, 0.15)';
+/**
+ * Update Chart.js defaults based on current theme
+ */
+function updateChartDefaults() {
+  const theme = getCurrentTheme();
+  Chart.defaults.font.family = "'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+  
+  if (theme === 'light') {
+    // Darker grey for light mode - matches --text-secondary in light theme
+    Chart.defaults.color = '#57534E';
+    Chart.defaults.borderColor = 'rgba(120, 113, 108, 0.15)';
+  } else {
+    // Original colors for dark mode
+    Chart.defaults.color = '#8DA4BE';
+    Chart.defaults.borderColor = 'rgba(141, 164, 190, 0.15)';
+  }
+}
+
+// Initialize Chart.js defaults
+updateChartDefaults();
 
 // Shared chart configuration
 export const CHART_COMMON_OPTIONS = {
@@ -56,17 +77,24 @@ export const CHART_COMMON_OPTIONS = {
 };
 
 // Common scale configurations
-export const createYAxis = (title, position = 'left', min = null, max = null) => ({
-  type: 'linear',
-  display: true,
-  position,
-  title: { display: true, text: title },
-  min,
-  max,
-  grid: position === 'left' 
-    ? { color: 'rgba(141, 164, 190, 0.1)' }
-    : { drawOnChartArea: false }
-});
+export const createYAxis = (title, position = 'left', min = null, max = null) => {
+  const theme = getCurrentTheme();
+  const gridColor = theme === 'light' 
+    ? 'rgba(120, 113, 108, 0.1)' 
+    : 'rgba(141, 164, 190, 0.1)';
+  
+  return {
+    type: 'linear',
+    display: true,
+    position,
+    title: { display: true, text: title },
+    min,
+    max,
+    grid: position === 'left' 
+      ? { color: gridColor }
+      : { drawOnChartArea: false }
+  };
+};
 
 /**
  * Safely destroy a chart instance
@@ -82,11 +110,17 @@ function safeDestroyChart(chart) {
 
 /**
  * Destroy all chart instances
+ * @param {boolean} includePowerGen - Whether to also destroy power generation charts
  */
-export function destroyAllCharts() {
+export function destroyAllCharts(includePowerGen = true) {
   weatherChart = safeDestroyChart(weatherChart);
   solarChart = safeDestroyChart(solarChart);
   solarTiltChart = safeDestroyChart(solarTiltChart);
+  
+  // Power gen charts are destroyed via their own module to avoid circular imports
+  if (includePowerGen && typeof window.destroyPowerGenCharts === 'function') {
+    window.destroyPowerGenCharts();
+  }
 }
 
 /**
@@ -186,6 +220,12 @@ function parseTiltAngle(tiltString) {
 export function renderWeatherChart(weather) {
   if (!weatherChartEl) return;
   
+  // Store data for theme updates
+  storedWeatherData = weather;
+  
+  // Update Chart.js defaults based on current theme
+  updateChartDefaults();
+  
   const ctx = weatherChartEl.getContext('2d');
   
   weatherChart = safeDestroyChart(weatherChart);
@@ -226,6 +266,12 @@ export function renderWeatherChart(weather) {
 export function renderSolarChart(solar) {
   if (!solarChartEl) return;
   
+  // Store data for theme updates
+  storedSolarData = solar;
+  
+  // Update Chart.js defaults based on current theme
+  updateChartDefaults();
+  
   const ctx = solarChartEl.getContext('2d');
   
   solarChart = safeDestroyChart(solarChart);
@@ -235,20 +281,35 @@ export function renderSolarChart(solar) {
   const monthlyOptimalPsh = solar.map(s => s.monthlyOptimal.psh);
   const yearlyFixedPsh = solar.map(s => s.yearlyFixed.psh);
   const flatPsh = solar.map(s => s.flat.psh);
-  
+
+  // Calculate dynamic Y-axis bounds based on data range
+  const allPsh = [...monthlyOptimalPsh, ...yearlyFixedPsh, ...flatPsh];
+  const minPsh = Math.min(...allPsh);
+  const maxPsh = Math.max(...allPsh);
+
+  // Add padding and round to nearest 0.5 for clean axis labels
+  const yAxisMin = Math.floor((minPsh * 0.9) * 2) / 2;
+  const yAxisMax = Math.ceil((maxPsh * 1.1) * 2) / 2;
+
+  // Get theme-aware colors matching the power generation chart
+  const theme = getCurrentTheme();
+  const monthlyColor = theme === 'light' ? '#D97706' : '#F5A623';
+  const yearlyColor = theme === 'light' ? '#0369A1' : '#0096C7';
+  const flatColor = theme === 'light' ? '#78716C' : '#8DA4BE';
+
   solarChart = new Chart(ctx, {
     type: 'line',
     data: {
       labels,
       datasets: [
-        createLineDataset('Monthly Optimal Tilt', monthlyOptimalPsh, '#F5A623', {
+        createLineDataset('Monthly Optimal Tilt', monthlyOptimalPsh, monthlyColor, {
           borderWidth: 3,
           pointRadius: 5,
           pointHoverRadius: 7,
           fill: true
         }),
-        createLineDataset('Yearly Fixed Tilt', yearlyFixedPsh, '#0096C7'),
-        createLineDataset('Flat (0°)', flatPsh, '#8DA4BE', {
+        createLineDataset('Yearly Fixed Tilt', yearlyFixedPsh, yearlyColor),
+        createLineDataset('Flat (0°)', flatPsh, flatColor, {
           borderDash: [5, 5]
         })
       ]
@@ -266,7 +327,7 @@ export function renderSolarChart(solar) {
       },
       scales: {
         ...CHART_COMMON_OPTIONS.scales,
-        y: createYAxis('Peak Sun Hours (kWh/m²/day)', 'left', 0)
+        y: createYAxis('Peak Sun Hours (kWh/m²/day)', 'left', yAxisMin, yAxisMax)
       }
     }
   });
@@ -278,6 +339,12 @@ export function renderSolarChart(solar) {
  */
 export function renderSolarTiltChart(solar) {
   if (!solarTiltChartEl) return;
+  
+  // Store data for theme updates (already stored in renderSolarChart, but ensure it's set)
+  storedSolarData = solar;
+  
+  // Update Chart.js defaults based on current theme
+  updateChartDefaults();
   
   const ctx = solarTiltChartEl.getContext('2d');
   
@@ -296,18 +363,23 @@ export function renderSolarTiltChart(solar) {
   const yAxisMax = Math.ceil(maxAbsTilt * Y_AXIS_PADDING_FACTOR);
   const yAxisMin = -yAxisMax; // Symmetric around 0
   
+  // Get theme-aware colors matching the PSH chart
+  const theme = getCurrentTheme();
+  const monthlyColor = theme === 'light' ? '#D97706' : '#F5A623';
+  const yearlyColor = theme === 'light' ? '#0369A1' : '#0096C7';
+  
   solarTiltChart = new Chart(ctx, {
     type: 'line',
     data: {
       labels,
       datasets: [
-        createLineDataset('Monthly Optimal Tilt', monthlyOptimalTilt, '#F5A623', {
+        createLineDataset('Monthly Optimal Tilt', monthlyOptimalTilt, monthlyColor, {
           borderWidth: 3,
           pointRadius: 5,
           pointHoverRadius: 7,
           fill: true
         }),
-        createLineDataset('Yearly Fixed Tilt', yearlyFixedTilt, '#0096C7', {
+        createLineDataset('Yearly Fixed Tilt', yearlyFixedTilt, yearlyColor, {
           borderWidth: 2,
           pointRadius: 4,
           pointHoverRadius: 6
@@ -349,11 +421,19 @@ export function renderSolarTiltChart(solar) {
           },
           grid: {
             color: function(context) {
+              const theme = getCurrentTheme();
+              const baseColor = theme === 'light' 
+                ? 'rgba(120, 113, 108, 0.1)' 
+                : 'rgba(141, 164, 190, 0.1)';
+              const highlightColor = theme === 'light'
+                ? 'rgba(120, 113, 108, 0.4)'
+                : 'rgba(141, 164, 190, 0.4)';
+              
               // Highlight the 0° line
               if (context.tick && context.tick.value === 0) {
-                return 'rgba(141, 164, 190, 0.4)';
+                return highlightColor;
               }
-              return 'rgba(141, 164, 190, 0.1)';
+              return baseColor;
             },
             lineWidth: function(context) {
               // Make the 0° line thicker
@@ -367,6 +447,33 @@ export function renderSolarTiltChart(solar) {
       }
     }
   });
+}
+
+/**
+ * Update all charts when theme changes
+ * Re-renders all existing charts with new theme colors
+ */
+export function updateChartsTheme() {
+  // Update Chart.js defaults
+  updateChartDefaults();
+  
+  // Re-render all charts if they exist and have data
+  if (storedWeatherData && weatherChart) {
+    renderWeatherChart(storedWeatherData);
+  }
+  
+  if (storedSolarData && solarChart) {
+    renderSolarChart(storedSolarData);
+  }
+  
+  if (storedSolarData && solarTiltChart) {
+    renderSolarTiltChart(storedSolarData);
+  }
+  
+  // Update power generation charts if they exist
+  if (typeof window.updatePowerGenChartsTheme === 'function') {
+    window.updatePowerGenChartsTheme();
+  }
 }
 
 // Export chart instances for external access

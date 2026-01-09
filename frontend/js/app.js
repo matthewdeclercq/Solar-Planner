@@ -7,13 +7,15 @@
 import { isAuthenticated } from './auth.js';
 import { showLoginPage, showMainApp } from './ui.js';
 import { setupLoginForm } from './login.js';
-import { searchForm, locationInput, querySelectorAll } from './dom.js';
-import { setupAutocomplete, hideAutocomplete, handleSolarGraphToggle, handleSectionViewToggle } from './autocomplete.js';
+import { searchForm, locationInput, querySelectorAll, themeToggleBtns } from './dom.js';
+import { setupAutocomplete, hideAutocomplete, handleSolarGraphToggle, handleSectionViewToggle, setCachedLocations } from './autocomplete.js';
 import { setupClearCache } from './cache.js';
-import { fetchData } from './api.js';
+import { fetchData, fetchCachedLocations } from './api.js';
 import { getUrlParam } from './utils.js';
-import { destroyAllCharts } from './charts.js';
+import { destroyAllCharts, updateChartsTheme } from './charts.js';
 import { showError } from './ui.js';
+import { initTheme, toggleTheme } from './theme.js';
+import { setupPowerGenListeners } from './powergen.js';
 
 // Cleanup function to clear timeouts on page unload
 function cleanup() {
@@ -73,9 +75,28 @@ function setupViewToggles() {
 }
 
 /**
+ * Setup theme toggle functionality
+ */
+function setupThemeToggle() {
+  themeToggleBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      toggleTheme();
+      // Update all charts with new theme colors
+      updateChartsTheme();
+    });
+  });
+}
+
+/**
  * Initialize the application
  */
-function init() {
+async function init() {
+  // Initialize theme early (before any UI is shown)
+  initTheme();
+  
+  // Setup theme toggle button
+  setupThemeToggle();
+  
   // Check authentication first
   if (!isAuthenticated()) {
     showLoginPage();
@@ -85,12 +106,17 @@ function init() {
 
   // User is authenticated, show main app
   showMainApp();
-  
+
   searchForm.addEventListener('submit', handleSubmit);
   setupAutocomplete();
   setupViewToggles();
   setupClearCache();
-  
+  setupPowerGenListeners();
+
+  // Fetch cached locations for search history
+  const cachedLocations = await fetchCachedLocations();
+  setCachedLocations(cachedLocations);
+
   // Check for location in URL params
   const location = getUrlParam('location');
   if (location) {

@@ -1,23 +1,25 @@
 # Solar Planner
 
-A web app for viewing historical weather data and peak sun hours (PSH) for solar panel planning. Enter any location to see monthly weather averages and compare solar energy potential across different panel tilt configurations.
+A web app for viewing historical weather data and peak sun hours for solar panel planning. Enter any location to see monthly weather averages and compare solar energy potential across different panel tilt configurations.
 
 ## Features
 
-- **Password Protection**: Secure access with password authentication (tokens expire after 24 hours)
-- **Historical Weather Data**: Monthly averages for high/low/mean temperature, humidity, and sunshine hours
+- **Password Protection**: Password authentication with tokens that expire after 24 hours
+- **Historical Weather Data**: Monthly averages for high/low/mean temperature and humidity
 - **Peak Sun Hours (PSH)**: Solar energy potential in kWh/m²/day for three panel configurations:
   - Monthly optimal tilt (adjusted each month for maximum energy)
   - Yearly fixed optimal tilt (set to latitude angle)
   - Flat mount (0° tilt, horizontal)
-- **Interactive Charts**: Visualize data with Chart.js graphs
-- **Fast & Cached**: Results cached for 30 days to minimize API calls
+- **Interactive Charts**: Visualize data with graphs and tables
+- **Location Search**: Autocomplete with search history from cached locations
+- **Theme Toggle**: Switch between light and dark mode
+- **Caching**: Results cached for 30 days to minimize API calls
 - **Mobile Friendly**: Responsive design works on all devices
 
 ## Tech Stack
 
-- **Frontend**: Pure HTML, CSS, JavaScript with Chart.js
-- **Backend**: Cloudflare Worker (serverless)
+- **Frontend**: HTML, CSS, JavaScript with Chart.js
+- **Backend**: Cloudflare Worker
 - **Data Source**: Visual Crossing Weather API
 - **Caching**: Cloudflare KV
 
@@ -28,14 +30,28 @@ Solar-Planner/
 ├── frontend/
 │   ├── index.html          # Main page
 │   ├── styles.css          # Styling
-│   ├── app.js              # Frontend logic
+│   ├── js/
+│   │   ├── app.js          # Main application logic
+│   │   ├── api.js          # API communication
+│   │   ├── auth.js         # Authentication
+│   │   ├── autocomplete.js # Location search
+│   │   ├── cache.js        # Cache management
+│   │   ├── charts.js       # Chart rendering
+│   │   ├── config.js       # Configuration
+│   │   ├── dom.js          # DOM references
+│   │   ├── login.js        # Login handling
+│   │   ├── results.js      # Results display
+│   │   ├── tables.js       # Table rendering
+│   │   ├── theme.js        # Theme toggle
+│   │   ├── ui.js           # UI utilities
+│   │   └── utils.js        # Utilities
 │   └── assets/
 │       └── CT_LOGO.webp    # Logo
 ├── worker/
 │   ├── wrangler.toml       # Worker configuration
 │   ├── package.json        # Dependencies
 │   └── src/
-│       └── index.js        # Worker API logic
+│       └── index.js        # API logic
 └── README.md
 ```
 
@@ -86,42 +102,25 @@ Note your worker URL (e.g., `https://solar-planner-api.matthew-declercq.workers.
 
 ### 6. Deploy Frontend
 
-**Cloudflare Pages (Recommended):**
+**Cloudflare Pages:**
 
 1. Push code to GitHub
 2. Go to [Cloudflare Dashboard](https://dash.cloudflare.com) > **Pages** > **Create a project** > **Connect to Git**
-3. Configure:
-   - **Framework preset**: None
-   - **Build output directory**: `frontend`
-4. **Configure Worker Binding** (IMPORTANT):
-   - Go to your Pages project settings
-   - Navigate to **Functions** > **Workers**
-   - Add a worker binding:
-     - **Variable name**: `SOLAR_PLANNER_API`
-     - **Service**: Select your deployed `solar-planner-api` worker
-   - Save the configuration
+3. Set **Framework preset** to None and **Build output directory** to `frontend`
+4. Configure worker binding in project settings: **Functions** > **Workers** > Add binding with variable name `SOLAR_PLANNER_API` pointing to your worker
 
-**Or deploy to any static host** (Netlify, Vercel, etc.) and update `API_URL` in `frontend/app.js` to your worker URL.
+**Or deploy to any static host** (Netlify, Vercel, etc.) and update `API_URL` in `frontend/js/config.js` to your worker URL.
 
 ## Local Development
 
-### Setup Local Environment Variables
+Create a `.dev.vars` file in the `worker/` directory:
 
-Create a `.dev.vars` file in the `worker/` directory with your credentials:
-
-```bash
-cd worker
-```
-
-Create `.dev.vars`:
 ```
 SITE_PASSWORD=your-password-here
 VISUAL_CROSSING_API_KEY=your-api-key-here
 ```
 
-**Note:** `.dev.vars` is already in `.gitignore` and won't be committed to git.
-
-### Run Worker
+Run the worker:
 
 ```bash
 cd worker
@@ -130,7 +129,7 @@ npm run dev
 
 Worker runs at `http://localhost:8787`
 
-### Run Frontend
+Run the frontend:
 
 ```bash
 cd frontend
@@ -148,11 +147,11 @@ Frontend runs at `http://localhost:3000` and automatically connects to the worke
 | `YEARS_OF_DATA` | Years of historical data to fetch (default: 2) | No |
 | `CACHE_TTL` | Cache duration in seconds (default: 2592000 = 30 days) | No |
 
-**Note on Visual Crossing API Limits:**
-- Free tier allows up to **1,000 records per day**
+**Visual Crossing API Limits:**
+- Free tier allows up to 1,000 records per day
 - Each day of historical data counts as 1 record
-- Default is 2 years (~730 days) to stay well under the free tier limit
-- If you upgrade your Visual Crossing plan, you can increase `YEARS_OF_DATA` (e.g., set to 5 for more historical data)
+- Default is 2 years (~730 days) to stay under the free tier limit
+- Increase `YEARS_OF_DATA` if you upgrade your Visual Crossing plan
 
 ## API Endpoints
 
@@ -195,6 +194,73 @@ Fetch weather and solar data for a location. Requires `Authorization: Bearer <to
 }
 ```
 
+### GET /api/autocomplete
+
+Get location suggestions for autocomplete. Requires `Authorization: Bearer <token>` header.
+
+**Request:**
+```
+GET /api/autocomplete?q=Austin
+```
+
+**Response:**
+```json
+{
+  "suggestions": [
+    {
+      "display": "Austin, TX, United States",
+      "value": "Austin, TX, United States",
+      "apiLocation": "30.2672,-97.7431",
+      "lat": 30.2672,
+      "lon": -97.7431
+    }
+  ]
+}
+```
+
+### GET /api/cache/list
+
+List all cached locations. Requires `Authorization: Bearer <token>` header.
+
+**Response:**
+```json
+{
+  "locations": [
+    {
+      "key": "location:austin_tx",
+      "location": "Austin, TX, United States",
+      "originalSearch": "Austin, TX",
+      "latitude": 30.2672,
+      "longitude": -97.7431,
+      "cachedAt": 1234567890
+    }
+  ]
+}
+```
+
+### POST /api/cache/clear
+
+Clear cache for a location or all locations. Requires `Authorization: Bearer <token>` header.
+
+**Request:**
+```json
+{ "location": "Austin, TX" }
+```
+
+Or clear all:
+```json
+{}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Cache cleared for location: Austin, TX",
+  "deletedCount": 1
+}
+```
+
 ### GET /api/health
 
 Health check endpoint.
@@ -208,9 +274,9 @@ Health check endpoint.
 
 **Location not found**: Check spelling, try adding state/country, or use coordinates.
 
-**CORS errors**: Ensure `API_URL` in `frontend/app.js` matches your worker URL.
+**CORS errors**: Ensure `API_URL` in `frontend/js/config.js` matches your worker URL.
 
-**Empty/stale data**: Clear KV cache in Cloudflare Dashboard or verify API key: `wrangler secret list`
+**Empty or stale data**: Clear cache using the clear cache button in the app, or verify API key with `wrangler secret list`.
 
 **Login issues**: Verify `SITE_PASSWORD` is set correctly. Tokens expire after 24 hours.
 

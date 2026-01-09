@@ -37,7 +37,6 @@ const TOKEN_EXPIRY_HOURS = 24;
 
 // Conversion constants
 const MJ_TO_KWH = 3.6; // 1 kWh = 3.6 MJ
-const CLEAR_SKY_RADIATION = 800; // W/m² typical clear sky radiation
 
 export default {
   async fetch(request, env, ctx) {
@@ -76,6 +75,14 @@ export default {
         return jsonResponse({ error: authResult.error || 'Unauthorized' }, 401, corsHeaders);
       }
       return handleClearCache(request, env, corsHeaders);
+    }
+
+    if (url.pathname === '/api/cache/list' && request.method === 'GET') {
+      const authResult = await verifyAuth(request, env);
+      if (!authResult.valid) {
+        return jsonResponse({ error: authResult.error || 'Unauthorized' }, 401, corsHeaders);
+      }
+      return handleListCache(env, corsHeaders);
     }
 
     if (url.pathname === '/api/health') {
@@ -321,15 +328,69 @@ async function handleClearCache(request, env, corsHeaders) {
       } while (cursor);
     }
     
-    return jsonResponse({ 
+    return jsonResponse({
       success: true,
-      message: location 
-        ? `Cache cleared for location: ${location}` 
+      message: location
+        ? `Cache cleared for location: ${location}`
         : 'All cache entries cleared',
       deletedCount
     }, 200, corsHeaders);
   } catch (error) {
     return jsonResponse({ error: 'Failed to clear cache: ' + error.message }, 500, corsHeaders);
+  }
+}
+
+/**
+ * Check if a string looks like coordinates (e.g., "30.2672,-97.7431")
+ */
+function looksLikeCoordinates(str) {
+  if (!str) return false;
+  // Match patterns like "30.2672,-97.7431" or "30.2672, -97.7431"
+  return /^-?\d+\.?\d*,\s*-?\d+\.?\d*$/.test(str.trim());
+}
+
+async function handleListCache(env, corsHeaders) {
+  try {
+    const locations = [];
+    let cursor = null;
+
+    do {
+      const listResult = await env.SOLAR_CACHE.list({ prefix: 'location:', cursor });
+
+      // Fetch each cached entry to get location details
+      const entries = await Promise.all(
+        listResult.keys.map(async (key) => {
+          const data = await env.SOLAR_CACHE.get(key.name, 'json');
+          // Only return entries with valid location name (not coordinates) and complete data
+          if (data && data.location && data.weather && data.solar && !looksLikeCoordinates(data.location)) {
+            // Extract original search value from cache key (reverse normalization)
+            // Key format: "location:original_value" -> "original value"
+            const originalSearch = key.name
+              .replace('location:', '')
+              .replace(/_/g, ' ');
+            return {
+              key: key.name,
+              location: data.location,
+              originalSearch, // Use this to ensure cache hit
+              latitude: data.latitude,
+              longitude: data.longitude,
+              cachedAt: data.cachedAt || 0
+            };
+          }
+          return null;
+        })
+      );
+
+      locations.push(...entries.filter(Boolean));
+      cursor = listResult.listComplete ? null : listResult.cursor;
+    } while (cursor);
+
+    // Sort by most recent first
+    locations.sort((a, b) => b.cachedAt - a.cachedAt);
+
+    return jsonResponse({ locations }, 200, corsHeaders);
+  } catch (error) {
+    return jsonResponse({ error: 'Failed to list cache: ' + error.message }, 500, corsHeaders);
   }
 }
 
@@ -370,7 +431,7 @@ async function handleDataRequest(request, env, ctx, corsHeaders) {
       unitGroup: 'us',
       include: 'days',
       key: apiKey,
-      elements: 'datetime,tempmax,tempmin,temp,humidity,solarenergy,solarradiation,sunrise,sunset'
+      elements: 'datetime,tempmax,tempmin,temp,humidity,solarenergy'
     });
 
     const apiUrl = `https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/${encodeURIComponent(apiLocation)}/${startStr}/${endStr}?${params}`;
@@ -385,10 +446,28 @@ async function handleDataRequest(request, env, ctx, corsHeaders) {
     }
 
     const data = await response.json();
-    const { latitude, longitude, resolvedAddress, days } = data;
+    let { latitude, longitude, resolvedAddress, days } = data;
 
     if (!days || days.length === 0) {
       return jsonResponse({ error: 'No weather data available for this location' }, 400, corsHeaders);
+    }
+
+    // If resolvedAddress is just coordinates, try reverse geocoding with Nominatim
+    if (looksLikeCoordinates(resolvedAddress)) {
+      try {
+        const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`;
+        const geoResponse = await fetch(nominatimUrl, {
+          headers: { 'User-Agent': 'Solar-Planner/1.0' }
+        });
+        if (geoResponse.ok) {
+          const geoData = await geoResponse.json();
+          if (geoData.display_name) {
+            resolvedAddress = geoData.display_name;
+          }
+        }
+      } catch (e) {
+        // Keep original resolvedAddress if reverse geocoding fails
+      }
     }
 
     // Validate latitude/longitude
@@ -426,28 +505,12 @@ async function handleDataRequest(request, env, ctx, corsHeaders) {
       const solarEnergyMJ = avg(monthDays, 'solarenergy');
       const flatPSH = solarEnergyMJ / MJ_TO_KWH;
 
-      // Calculate sunshine hours from sunrise/sunset
-      let sunshineHours = 0;
-      const daylightData = monthDays.filter(d => d.sunrise && d.sunset);
-      if (daylightData.length > 0) {
-        const totalDaylight = daylightData.reduce((sum, d) => {
-          const sunrise = parseTime(d.sunrise);
-          const sunset = parseTime(d.sunset);
-          return sum + (sunset - sunrise) / 3600; // Convert seconds to hours
-        }, 0);
-        // Adjust daylight by solar radiation factor (accounts for clouds)
-        const avgRadiation = avg(monthDays, 'solarradiation');
-        const clearSkyFactor = Math.min(1, avgRadiation / CLEAR_SKY_RADIATION);
-        sunshineHours = (totalDaylight / daylightData.length) * clearSkyFactor;
-      }
-
       weather.push({
         month: MONTHS[m],
         highF: round(highF, 1),
         lowF: round(lowF, 1),
         meanF: round(meanF, 1),
-        humidity: round(humidity, 1),
-        sunshineHours: round(sunshineHours, 1)
+        humidity: round(humidity, 1)
       });
 
       // Calculate PSH for tilted panels using solar geometry
@@ -487,7 +550,8 @@ async function handleDataRequest(request, env, ctx, corsHeaders) {
       longitude: round(longitude, 4),
       weather,
       solar,
-      yearsOfData: years
+      yearsOfData: years,
+      cachedAt: Date.now()
     };
 
     const cacheTtl = parseInt(env.CACHE_TTL) || DEFAULT_CACHE_TTL;
@@ -593,19 +657,6 @@ function calculateTiltGain(latitude, tiltAngle, month) {
 
   // Clamp to reasonable range
   return Math.max(1.0, Math.min(maxGain, gain));
-}
-
-/**
- * Parse time string (HH:MM:SS) to seconds since midnight
- */
-function parseTime(timeStr) {
-  if (!timeStr) return 0;
-  const parts = timeStr.split(':');
-  if (parts.length < 2) return 0;
-  const hours = parseInt(parts[0], 10);
-  const minutes = parseInt(parts[1], 10);
-  const seconds = parts.length > 2 ? parseInt(parts[2], 10) : 0;
-  return hours * 3600 + minutes * 60 + seconds;
 }
 
 /* ── UTILITIES ──────────────────────────────────────────────────────────── */

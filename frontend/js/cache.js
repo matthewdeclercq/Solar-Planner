@@ -5,8 +5,9 @@
 import { CACHE_CLEAR_URL, isLocalDev } from './config.js';
 import { clearCacheBtn, cacheInfoEl } from './dom.js';
 import { getAuthToken, getAuthHeaders, clearAuth, handleAuthError } from './auth.js';
-import { handleApiResponse } from './api.js';
+import { handleApiResponse, fetchCachedLocations } from './api.js';
 import { showError } from './ui.js';
+import { setCachedLocations } from './autocomplete.js';
 
 /**
  * Setup clear cache functionality
@@ -50,7 +51,10 @@ export function setupClearCache() {
       const message = data.message || 'Cache cleared successfully';
       cacheInfoEl.textContent = `✓ ${message}`;
       cacheInfoEl.classList.add('cached');
-      
+
+      // Refresh cached locations list
+      fetchCachedLocations().then(setCachedLocations);
+
       // Reset button after a moment
       setTimeout(() => {
         clearCacheBtn.innerHTML = originalText;

@@ -36,8 +36,9 @@ ES6 modules with no build step. Key files:
 - `js/auth.js` - Token management (localStorage)
 - `js/config.js` - Environment-based API URL detection
 - `js/dom.js` - Centralized DOM element references
-- `js/charts.js` - Chart.js integration
+- `js/charts.js` - Chart.js integration (dynamic Y-axis scaling)
 - `js/autocomplete.js` - Location search with debouncing
+- `js/theme.js` - Light/dark theme toggle (persisted to localStorage)
 
 ### Worker (`worker/src/index.js`)
 Single file containing all backend logic (~645 lines):

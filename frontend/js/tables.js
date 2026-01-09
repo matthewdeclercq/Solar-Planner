@@ -28,8 +28,7 @@ export function renderWeatherTable(weather) {
     row => row.highF,
     row => row.lowF,
     row => row.meanF,
-    row => row.humidity,
-    row => row.sunshineHours
+    row => row.humidity
   ]);
 }
 

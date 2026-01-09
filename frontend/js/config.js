@@ -8,6 +8,7 @@ export const API_BASE = isLocalDev ? 'http://localhost:8787' : 'https://solar-pl
 export const API_URL = `${API_BASE}/api/data`;
 export const LOGIN_URL = `${API_BASE}/api/login`;
 export const CACHE_CLEAR_URL = `${API_BASE}/api/cache/clear`;
+export const CACHE_LIST_URL = `${API_BASE}/api/cache/list`;
 
 // Storage keys
 export const TOKEN_STORAGE_KEY = 'solar_planner_token';

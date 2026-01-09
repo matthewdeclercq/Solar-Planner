@@ -3,17 +3,30 @@
  */
 
 import { API_BASE, isLocalDev } from './config.js';
-import { locationInput, autocompleteDropdown, solarGraphToggle, solarChartEl, solarTiltChartEl, querySelectorAll } from './dom.js';
+import { locationInput, autocompleteDropdown, solarGraphToggle, solarPshLabel, solarTiltLabel, solarChartEl, solarTiltChartEl, querySelectorAll } from './dom.js';
 import { getAuthToken, getAuthHeaders, handleAuthError } from './auth.js';
-import { handleApiResponse } from './api.js';
+import { handleApiResponse, fetchData } from './api.js';
 import { escapeHtml } from './utils.js';
 import { debounceChartResize, getWeatherChart, getSolarChart, getSolarTiltChart } from './charts.js';
+
+// SVG icon constants
+const ICON_CACHED = '<svg class="autocomplete-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
+const ICON_LOCATION = '<svg class="autocomplete-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>';
 
 // Autocomplete state
 let autocompleteSuggestions = [];
 let selectedIndex = -1;
 let autocompleteTimeout = null;
 let autocompleteRequestId = 0; // Track request sequence for race condition protection
+let cachedLocations = []; // Store cached locations for history dropdown
+
+/**
+ * Set cached locations for history dropdown
+ * @param {Array} locations - Array of cached location objects
+ */
+export function setCachedLocations(locations) {
+  cachedLocations = locations || [];
+}
 
 /**
  * Hide autocomplete dropdown
@@ -25,18 +38,43 @@ export function hideAutocomplete() {
 }
 
 /**
- * Render autocomplete dropdown
+ * Show cached locations dropdown (when input is focused and empty)
  */
-function renderAutocomplete() {
+function showCachedLocations() {
+  if (cachedLocations.length === 0) return;
+
+  autocompleteSuggestions = cachedLocations
+    .filter(loc => loc.location) // Only show items with valid location names
+    .map(loc => ({
+      display: loc.location,
+      value: loc.location,
+      // Use originalSearch to ensure cache key matches (guarantees cache hit)
+      apiLocation: loc.originalSearch || `${loc.latitude},${loc.longitude}`,
+      isCached: true
+    }));
+  selectedIndex = -1;
+  renderAutocomplete('Recent Searches');
+}
+
+/**
+ * Render autocomplete dropdown
+ * @param {string} header - Optional header text (e.g., "Recent Searches")
+ */
+function renderAutocomplete(header = null) {
   if (autocompleteSuggestions.length === 0) {
     hideAutocomplete();
     return;
   }
 
-  autocompleteDropdown.innerHTML = autocompleteSuggestions
-    .map((suggestion, index) => 
-      `<div class="autocomplete-item" data-index="${index}">${escapeHtml(suggestion.display)}</div>`
-    )
+  const headerHtml = header
+    ? `<div class="autocomplete-header">${escapeHtml(header)}</div>`
+    : '';
+
+  autocompleteDropdown.innerHTML = headerHtml + autocompleteSuggestions
+    .map((suggestion, index) => {
+      const icon = suggestion.isCached ? ICON_CACHED : ICON_LOCATION;
+      return `<div class="autocomplete-item" data-index="${index}">${icon}${escapeHtml(suggestion.display)}</div>`;
+    })
     .join('');
 
   // Use event delegation instead of adding listeners to each item (prevents memory leak)
@@ -64,11 +102,23 @@ function updateAutocompleteSelection() {
  */
 function selectAutocomplete(suggestion) {
   // Store display value and API-compatible location
-  locationInput.value = suggestion.display || suggestion.value;
+  const displayLocation = suggestion.display || suggestion.value;
+  locationInput.value = displayLocation;
   // Store API location in data attribute (coordinates preferred)
   locationInput.dataset.apiLocation = suggestion.apiLocation || suggestion.value;
   hideAutocomplete();
-  locationInput.focus();
+
+  // Auto-fetch if this is a cached location (instant load)
+  if (suggestion.isCached) {
+    // Update URL with display location (same as handleSubmit)
+    const url = new URL(window.location);
+    url.searchParams.set('location', displayLocation);
+    window.history.pushState({}, '', url.toString());
+    
+    fetchData(suggestion.apiLocation);
+  } else {
+    locationInput.focus();
+  }
 }
 
 /**
@@ -128,24 +178,38 @@ async function fetchAutocomplete(query) {
 export function setupAutocomplete() {
   let isComposing = false; // Track IME composition (for Asian languages)
 
+  // Show cached locations when input is focused and empty
+  locationInput.addEventListener('focus', () => {
+    const query = locationInput.value.trim();
+    if (query.length === 0) {
+      showCachedLocations();
+    }
+  });
+
   locationInput.addEventListener('input', (e) => {
     if (isComposing) return;
     const query = e.target.value.trim();
-    
+
     // Clear API location when user types manually (not from autocomplete selection)
     delete locationInput.dataset.apiLocation;
-    
+
     // Clear previous timeout
     if (autocompleteTimeout) {
       clearTimeout(autocompleteTimeout);
     }
-    
-    // Hide dropdown if query is too short
+
+    // Show cached locations if input is empty
+    if (query.length === 0) {
+      showCachedLocations();
+      return;
+    }
+
+    // Hide dropdown if query is too short for API search
     if (query.length < 2) {
       hideAutocomplete();
       return;
     }
-    
+
     // Debounce autocomplete requests
     autocompleteTimeout = setTimeout(() => {
       fetchAutocomplete(query);
@@ -219,10 +283,14 @@ export function handleSolarGraphToggle(view) {
   if (view === 'psh') {
     solarChartEl?.classList.remove('hidden');
     solarTiltChartEl?.classList.add('hidden');
+    solarPshLabel?.classList.remove('hidden');
+    solarTiltLabel?.classList.add('hidden');
     debounceChartResize(getSolarChart());
   } else if (view === 'tilt') {
     solarChartEl?.classList.add('hidden');
     solarTiltChartEl?.classList.remove('hidden');
+    solarPshLabel?.classList.add('hidden');
+    solarTiltLabel?.classList.remove('hidden');
     debounceChartResize(getSolarTiltChart());
   }
 }

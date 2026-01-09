@@ -60,7 +60,20 @@ export const solarTableBody = querySelector('#solar-table tbody');
 export const cacheInfoEl = getElement('cache-info');
 export const clearCacheBtn = getElement('clear-cache-btn');
 export const solarGraphToggle = getElement('solar-graph-toggle');
+export const solarPshLabel = getElement('solar-psh-label');
+export const solarTiltLabel = getElement('solar-tilt-label');
 export const weatherChartEl = getElement('weather-chart');
 export const solarChartEl = getElement('solar-chart');
 export const solarTiltChartEl = getElement('solar-tilt-chart');
+export const themeToggleBtns = querySelectorAll('.theme-toggle-btn');
 
+// Power Generation Calculator elements
+export const panelWattageInput = getElement('panel-wattage');
+export const powerGenLabel = getElement('power-gen-label');
+export const powerGenChartEl = getElement('power-gen-chart');
+export const powerGenPlaceholder = getElement('power-gen-placeholder');
+export const powerGenContainer = getElement('power-gen-container');
+export const hourlyPowerChartEl = getElement('hourly-power-chart');
+export const hourlyPowerContainer = getElement('hourly-power-container');
+export const hourlyBackBtn = getElement('hourly-back-btn');
+export const hourlyChartTitle = getElement('hourly-chart-title');

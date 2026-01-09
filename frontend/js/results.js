@@ -6,6 +6,9 @@ import { resolvedLocationEl, coordinatesEl, yearsInfoEl, cacheInfoEl, clearCache
 import { renderWeatherTable, renderSolarTable } from './tables.js';
 import { renderWeatherChart, renderSolarChart, renderSolarTiltChart } from './charts.js';
 import { showResults } from './ui.js';
+import { fetchCachedLocations } from './api.js';
+import { setCachedLocations, handleSolarGraphToggle } from './autocomplete.js';
+import { initPowerGenCalculator, showMonthlyChart } from './powergen.js';
 
 /**
  * Display the results
@@ -39,16 +42,27 @@ export function displayResults(data, cacheKeyLocation) {
   renderSolarChart(data.solar);
   renderSolarTiltChart(data.solar);
   
+  // Initialize power generation calculator with solar data and latitude
+  showMonthlyChart(); // Reset to monthly view if hourly was showing
+  initPowerGenCalculator(data.solar, data.latitude);
+  
   // Show solar graph toggle if solar section is in graph view (default state)
   const solarGraphView = querySelector('[data-section="solar"][data-view="graph"].view-content');
   if (solarGraphView && !solarGraphView.classList.contains('hidden')) {
     if (solarGraphToggle) solarGraphToggle.style.display = 'flex';
+    // Ensure correct label is shown (PSH is default)
+    handleSolarGraphToggle('psh');
   }
   
   // Store the original input location used for cache key (not the resolved address)
   // This ensures cache clearing uses the same key that was used for caching
   clearCacheBtn.dataset.currentLocation = cacheKeyLocation || data.location;
-  
+
   showResults();
+
+  // Refresh cached locations list if this was a new (non-cached) fetch
+  if (!data.cached) {
+    fetchCachedLocations().then(setCachedLocations);
+  }
 }
 

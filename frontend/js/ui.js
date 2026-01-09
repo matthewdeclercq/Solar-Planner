@@ -2,7 +2,10 @@
  * UI state management module
  */
 
-import { loadingEl, errorEl, errorText, resultsEl, submitBtn } from './dom.js';
+import {
+  loadingEl, errorEl, errorText, resultsEl, submitBtn,
+  loginPage, mainApp
+} from './dom.js';
 
 /**
  * Show loading state
@@ -49,8 +52,6 @@ export function showResults() {
 export function hideResults() {
   resultsEl.classList.add('hidden');
 }
-
-import { loginPage, mainApp } from './dom.js';
 
 /**
  * Show login page

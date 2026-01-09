@@ -2,7 +2,7 @@
  * API communication module
  */
 
-import { API_URL, CACHE_CLEAR_URL, isLocalDev } from './config.js';
+import { API_URL, CACHE_CLEAR_URL, CACHE_LIST_URL, isLocalDev } from './config.js';
 import { getAuthToken, getAuthHeaders, handleAuthError } from './auth.js';
 import { showLoading, hideLoading, showError, hideError, hideResults } from './ui.js';
 import { destroyAllCharts } from './charts.js';
@@ -133,14 +133,42 @@ export async function clearCache(location = null) {
   if (!token) {
     throw new Error('Not authenticated');
   }
-  
+
   const requestBody = location ? { location } : {};
   const response = await fetch(CACHE_CLEAR_URL, {
     method: 'POST',
     headers: getAuthHeaders(token),
     body: JSON.stringify(requestBody)
   });
-  
+
   return await handleApiResponse(response);
+}
+
+/**
+ * Fetch list of cached locations
+ * @returns {Promise<Array>} Array of cached locations
+ */
+export async function fetchCachedLocations() {
+  const token = getAuthToken();
+  if (!token) {
+    return [];
+  }
+
+  try {
+    const response = await fetch(CACHE_LIST_URL, {
+      method: 'GET',
+      headers: getAuthHeaders(token)
+    });
+
+    const data = await handleApiResponse(response);
+    if (!data || !data.locations) return [];
+
+    return data.locations;
+  } catch (error) {
+    if (isLocalDev) {
+      console.error('Failed to fetch cached locations:', error);
+    }
+    return [];
+  }
 }
 

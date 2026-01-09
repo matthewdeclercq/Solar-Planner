@@ -17,6 +17,24 @@
   
   <!-- Login Page -->
   <div id="login-page" class="login-page hidden">
+    <div class="theme-toggle-container">
+      <button class="theme-toggle-btn" aria-label="Toggle theme">
+        <svg class="sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="5"/>
+          <line x1="12" y1="1" x2="12" y2="3"/>
+          <line x1="12" y1="21" x2="12" y2="23"/>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+          <line x1="1" y1="12" x2="3" y2="12"/>
+          <line x1="21" y1="12" x2="23" y2="12"/>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+        </svg>
+        <svg class="moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+      </button>
+    </div>
     <main class="container">
       <div class="login-container">
         <div class="logo">
@@ -60,6 +78,24 @@
   
   <!-- Main Application -->
   <div id="main-app" class="main-app hidden">
+    <div class="theme-toggle-container">
+      <button class="theme-toggle-btn" aria-label="Toggle theme">
+        <svg class="sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="5"/>
+          <line x1="12" y1="1" x2="12" y2="3"/>
+          <line x1="12" y1="21" x2="12" y2="23"/>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+          <line x1="1" y1="12" x2="3" y2="12"/>
+          <line x1="21" y1="12" x2="23" y2="12"/>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+        </svg>
+        <svg class="moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+      </button>
+    </div>
     <main class="container">
       <!-- Header -->
       <header class="header">
@@ -170,7 +206,6 @@
                 <th>Low (°F)</th>
                 <th>Mean (°F)</th>
                 <th>Humidity (%)</th>
-                <th>Sunshine (hrs/day)</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -249,9 +284,70 @@
           </table>
         </div>
 
+        <!-- Chart Labels -->
+        <p class="chart-label view-content" id="solar-psh-label" data-section="solar" data-view="graph">Peak Sun Hours (PSH) represents the average daily solar energy received per square meter of panel surface. Higher values indicate more solar energy available. Monthly Optimal Tilt adjusts the panel angle each month for maximum energy capture, while Yearly Fixed Tilt uses a constant angle set to the location's latitude.</p>
+        <p class="chart-label hidden view-content" id="solar-tilt-label" data-section="solar" data-view="graph">Tilt angles show the optimal panel orientation for each month. Positive values indicate South-facing (toward the equator), while negative values indicate North-facing. Monthly Optimal Tilt changes throughout the year to track the sun's position, while Yearly Fixed Tilt remains constant at the location's latitude.</p>
+
         <div class="chart-container view-content" data-section="solar" data-view="graph">
           <canvas id="solar-chart" data-view="psh"></canvas>
           <canvas id="solar-tilt-chart" class="hidden" data-view="tilt"></canvas>
+        </div>
+      </section>
+
+      <!-- Section 3: Power Generation Calculator -->
+      <section class="data-section" id="power-gen-section">
+        <div class="section-header">
+          <div>
+            <h3>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+              </svg>
+              Power Generation Calculator
+            </h3>
+            <p class="section-description">Estimate your solar panel output based on PSH data</p>
+          </div>
+        </div>
+
+        <!-- Power Calculator Inputs -->
+        <div class="power-calc-inputs">
+          <div class="input-group">
+            <label for="panel-wattage">Panel Wattage</label>
+            <div class="input-with-suffix">
+              <input 
+                type="number" 
+                id="panel-wattage" 
+                placeholder="e.g. 400"
+                min="1"
+                max="100000"
+                step="1"
+              >
+              <span class="input-suffix">W</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chart Label -->
+        <p class="chart-label hidden" id="power-gen-label">Average daily power generation (kWh/day) for each month, comparing Monthly Optimal Tilt, Yearly Fixed Tilt, and Flat (0°) configurations. Click any bar to see the hourly breakdown for that month and tilt method.</p>
+
+        <!-- Monthly Power Generation Chart -->
+        <div class="chart-container" id="power-gen-container">
+          <p class="chart-placeholder" id="power-gen-placeholder">Enter your panel wattage above to see estimated power generation</p>
+          <canvas id="power-gen-chart" class="hidden"></canvas>
+        </div>
+
+        <!-- Hourly Power Generation Chart (hidden by default) -->
+        <div class="chart-container hidden" id="hourly-power-container">
+          <div class="hourly-header">
+            <button id="hourly-back-btn" class="back-btn" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="19" y1="12" x2="5" y2="12"/>
+                <polyline points="12 19 5 12 12 5"/>
+              </svg>
+              Back to Monthly
+            </button>
+            <h4 id="hourly-chart-title">Hourly Power Generation</h4>
+          </div>
+          <canvas id="hourly-power-chart"></canvas>
         </div>
       </section>
     </div>
@@ -259,6 +355,7 @@
 
     <footer class="footer">
       <p>Data from <a href="https://www.visualcrossing.com/" target="_blank" rel="noopener">Visual Crossing Weather</a></p>
+      <p>© 2026 Copper Tech LLC. All rights reserved.</p>
     </footer>
   </div>
 
