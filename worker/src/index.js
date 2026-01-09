@@ -6,6 +6,7 @@
 
 // Allowed origins for CORS (normalized - trailing slashes removed)
 const ALLOWED_ORIGINS = [
+  'https://solar-planner.coppertech.us',
   'https://solar-planner.coppertech.co',
   'https://solar-planner.pages.dev',
   'http://localhost:3000',

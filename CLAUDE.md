@@ -39,9 +39,16 @@ ES6 modules with no build step. Key files:
 - `js/charts.js` - Chart.js integration (dynamic Y-axis scaling)
 - `js/autocomplete.js` - Location search with debouncing
 - `js/theme.js` - Light/dark theme toggle (persisted to localStorage)
+- `js/login.js` - Login form setup and event handling
+- `js/results.js` - Results display orchestration
+- `js/tables.js` - Table rendering for weather and solar data
+- `js/ui.js` - UI state management (loading, error, results display)
+- `js/cache.js` - Cache management functionality
+- `js/utils.js` - Utility functions (URL params, HTML escaping, color conversion)
+- `js/powergen.js` - Power generation calculator with monthly/hourly charts
 
 ### Worker (`worker/src/index.js`)
-Single file containing all backend logic (~645 lines):
+Single file containing all backend logic (~696 lines):
 - Authentication: HMAC-SHA256 tokens with 24-hour expiry
 - Solar calculations: Tilt angle optimization based on latitude and solar declination
 - Caching: Cloudflare KV with 30-day TTL
@@ -53,7 +60,8 @@ Single file containing all backend logic (~645 lines):
 | `/api/login` | POST | No | Get auth token |
 | `/api/data` | POST | Bearer | Fetch weather + solar data |
 | `/api/autocomplete` | GET | Bearer | Location suggestions (Nominatim) |
-| `/api/cache/clear` | POST | Bearer | Clear cached location |
+| `/api/cache/clear` | POST | Bearer | Clear cached location (all if no location param) |
+| `/api/cache/list` | GET | Bearer | List all cached locations |
 | `/api/health` | GET | No | Health check |
 
 ### Data Flow
