@@ -58,6 +58,7 @@ export const yearsInfoEl = getElement('years-info');
 export const weatherTableBody = querySelector('#weather-table tbody');
 export const solarTableBody = querySelector('#solar-table tbody');
 export const cacheInfoEl = getElement('cache-info');
+export const cacheInfoText = getElement('cache-info-text');
 export const clearCacheBtn = getElement('clear-cache-btn');
 export const solarGraphToggle = getElement('solar-graph-toggle');
 export const solarPshLabel = getElement('solar-psh-label');
@@ -77,3 +78,12 @@ export const hourlyPowerChartEl = getElement('hourly-power-chart');
 export const hourlyPowerContainer = getElement('hourly-power-container');
 export const hourlyBackBtn = getElement('hourly-back-btn');
 export const hourlyChartTitle = getElement('hourly-chart-title');
+export const powerGenViewToggle = getElement('power-gen-view-toggle');
+export const powerGenDailyToggleBtn = querySelector('[data-section="power-gen-view"][data-view="daily"]');
+export const powerGenMonthlyToggleBtn = querySelector('[data-section="power-gen-view"][data-view="monthly"]');
+
+// Power generation table elements
+export const powerGenTableBody = querySelector('#power-gen-table tbody');
+export const powerGenMonthlyOptimalTotal = getElement('power-gen-monthly-optimal-total');
+export const powerGenYearlyFixedTotal = getElement('power-gen-yearly-fixed-total');
+export const powerGenFlatTotal = getElement('power-gen-flat-total');

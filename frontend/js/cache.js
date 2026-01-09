@@ -3,7 +3,7 @@
  */
 
 import { CACHE_CLEAR_URL, isLocalDev } from './config.js';
-import { clearCacheBtn, cacheInfoEl } from './dom.js';
+import { clearCacheBtn, cacheInfoEl, cacheInfoText } from './dom.js';
 import { getAuthToken, getAuthHeaders, clearAuth, handleAuthError } from './auth.js';
 import { handleApiResponse, fetchCachedLocations } from './api.js';
 import { showError } from './ui.js';
@@ -27,8 +27,8 @@ export function setupClearCache() {
     }
     
     clearCacheBtn.disabled = true;
-    const originalText = clearCacheBtn.innerHTML;
-    clearCacheBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Clearing...';
+    const originalText = clearCacheBtn.textContent;
+    clearCacheBtn.textContent = 'Clearing...';
     
     try {
       const currentLocation = clearCacheBtn.dataset.currentLocation;
@@ -49,21 +49,22 @@ export function setupClearCache() {
       
       // Show success message
       const message = data.message || 'Cache cleared successfully';
-      cacheInfoEl.textContent = `✓ ${message}`;
+      cacheInfoText.textContent = `✓ ${message}`;
       cacheInfoEl.classList.add('cached');
+      clearCacheBtn.classList.remove('show');
 
       // Refresh cached locations list
       fetchCachedLocations().then(setCachedLocations);
 
       // Reset button after a moment
       setTimeout(() => {
-        clearCacheBtn.innerHTML = originalText;
+        clearCacheBtn.textContent = originalText;
         clearCacheBtn.disabled = false;
       }, 2000);
       
     } catch (error) {
       showError(error.message || 'Failed to clear cache');
-      clearCacheBtn.innerHTML = originalText;
+      clearCacheBtn.textContent = originalText;
       clearCacheBtn.disabled = false;
       if (isLocalDev) {
         console.error('Clear cache error:', error);

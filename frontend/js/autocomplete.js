@@ -2,12 +2,13 @@
  * Autocomplete module
  */
 
-import { API_BASE, isLocalDev } from './config.js';
-import { locationInput, autocompleteDropdown, solarGraphToggle, solarPshLabel, solarTiltLabel, solarChartEl, solarTiltChartEl, querySelectorAll } from './dom.js';
+import { API_BASE, isLocalDev, AUTOCOMPLETE_DEBOUNCE_MS } from './config.js';
+import { locationInput, autocompleteDropdown, solarGraphToggle, solarPshLabel, solarTiltLabel, solarChartEl, solarTiltChartEl, querySelectorAll, getElement, hourlyPowerContainer } from './dom.js';
 import { getAuthToken, getAuthHeaders, handleAuthError } from './auth.js';
 import { handleApiResponse, fetchData } from './api.js';
 import { escapeHtml } from './utils.js';
 import { debounceChartResize, getWeatherChart, getSolarChart, getSolarTiltChart } from './charts.js';
+import { getPowerGenChart, showMonthlyChart } from './powergen.js';
 
 // SVG icon constants
 const ICON_CACHED = '<svg class="autocomplete-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
@@ -213,7 +214,7 @@ export function setupAutocomplete() {
     // Debounce autocomplete requests
     autocompleteTimeout = setTimeout(() => {
       fetchAutocomplete(query);
-    }, 300);
+    }, AUTOCOMPLETE_DEBOUNCE_MS);
   });
 
   // Handle IME composition events
@@ -296,28 +297,86 @@ export function handleSolarGraphToggle(view) {
 }
 
 /**
+ * Get the currently active solar graph type
+ * @returns {string} 'psh' or 'tilt'
+ */
+function getActiveSolarGraph() {
+  if (!solarGraphToggle) return 'psh';
+  const activeToggle = solarGraphToggle.querySelector('.toggle-btn.active');
+  return activeToggle?.dataset?.view || 'psh';
+}
+
+/**
+ * Show correct solar label based on active graph
+ * @param {HTMLElement} labelElement - Label element to show/hide
+ */
+function showCorrectSolarLabel(labelElement) {
+  const activeGraph = getActiveSolarGraph();
+
+  if (labelElement === solarPshLabel) {
+    labelElement.classList.toggle('hidden', activeGraph !== 'psh');
+  } else if (labelElement === solarTiltLabel) {
+    labelElement.classList.toggle('hidden', activeGraph !== 'tilt');
+  }
+}
+
+/**
+ * Handle chart resize when activating graph view
+ * @param {string} section - Section name ('weather', 'solar', or 'power-gen')
+ */
+function handleGraphViewActivation(section) {
+  if (section === 'weather') {
+    debounceChartResize(getWeatherChart());
+  } else if (section === 'solar') {
+    if (solarGraphToggle) solarGraphToggle.style.display = 'flex';
+    debounceChartResize(getSolarChart());
+  } else if (section === 'power-gen') {
+    const powerGenViewToggle = getElement('power-gen-view-toggle');
+    if (powerGenViewToggle) powerGenViewToggle.style.display = 'flex';
+    debounceChartResize(getPowerGenChart());
+  }
+}
+
+/**
  * Handle section view toggle (table vs graph)
- * @param {string} section - Section name ('weather' or 'solar')
+ * @param {string} section - Section name ('weather', 'solar', or 'power-gen')
  * @param {string} view - View type ('table' or 'graph')
  */
 export function handleSectionViewToggle(section, view) {
   const sectionContents = querySelectorAll(`[data-section="${section}"].view-content`);
+
   sectionContents.forEach(content => {
     const isTargetView = content.dataset.view === view;
-    content.classList.toggle('hidden', !isTargetView);
-    
+
+    if (section === 'solar' && view === 'graph' &&
+        (content === solarPshLabel || content === solarTiltLabel)) {
+      showCorrectSolarLabel(content);
+    } else {
+      content.classList.toggle('hidden', !isTargetView);
+    }
+
     if (isTargetView && view === 'graph') {
-      // Resize chart when switching to graph view
-      if (section === 'weather') {
-        debounceChartResize(getWeatherChart());
-      } else if (section === 'solar') {
-        if (solarGraphToggle) solarGraphToggle.style.display = 'flex';
-        debounceChartResize(getSolarChart());
-      }
+      handleGraphViewActivation(section);
     } else if (section === 'solar' && view === 'table') {
-      // Hide graph toggle when switching to table view
       if (solarGraphToggle) solarGraphToggle.style.display = 'none';
     }
   });
+
+  // Handle power-gen Daily/Monthly toggle visibility and chart state
+  if (section === 'power-gen') {
+    const powerGenViewToggle = getElement('power-gen-view-toggle');
+    if (powerGenViewToggle) {
+      powerGenViewToggle.style.display = view === 'graph' ? 'flex' : 'none';
+    }
+    if (view === 'table') {
+      // Hide hourly chart when switching to table view
+      if (hourlyPowerContainer) {
+        hourlyPowerContainer.classList.add('hidden');
+      }
+    } else if (view === 'graph') {
+      // Ensure monthly chart is shown (not hourly) when switching to graph view
+      showMonthlyChart();
+    }
+  }
 }
 

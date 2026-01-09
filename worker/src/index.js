@@ -39,6 +39,24 @@ const TOKEN_EXPIRY_HOURS = 24;
 // Conversion constants
 const MJ_TO_KWH = 3.6; // 1 kWh = 3.6 MJ
 
+// Latitude bands for solar gain calculations
+const LATITUDE_BANDS = {
+  EQUATORIAL: { max: 20, minGain: 1.03, maxGain: 1.15 },
+  MID_LATITUDE: { max: 45, minGain: 1.05, maxGain: 1.40 },
+  HIGH_LATITUDE: { max: 60, minGain: 1.15, maxGain: 1.80 },
+  POLAR: { max: 90, minGain: 1.20, maxGain: 2.20 }
+};
+
+// Solar tilt calculation constants
+const TILT_PENALTY_EXPONENT = 1.5;
+const MAX_TILT_ANGLE = 90;
+const MIN_TILT_ANGLE = 0;
+
+// External API constants
+const NOMINATIM_USER_AGENT = 'Solar-Planner/1.0';
+const NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org';
+const AUTOCOMPLETE_LIMIT = 8;
+
 export default {
   async fetch(request, env, ctx) {
     const origin = request.headers.get('Origin');
@@ -55,34 +73,26 @@ export default {
     }
 
     if (url.pathname === '/api/data' && request.method === 'POST') {
-      const authResult = await verifyAuth(request, env);
-      if (!authResult.valid) {
-        return jsonResponse({ error: authResult.error || 'Unauthorized' }, 401, corsHeaders);
-      }
+      const auth = await requireAuth(request, env, corsHeaders);
+      if (!auth.valid) return auth.response;
       return handleDataRequest(request, env, ctx, corsHeaders);
     }
 
     if (url.pathname === '/api/autocomplete' && request.method === 'GET') {
-      const authResult = await verifyAuth(request, env);
-      if (!authResult.valid) {
-        return jsonResponse({ error: authResult.error || 'Unauthorized' }, 401, corsHeaders);
-      }
+      const auth = await requireAuth(request, env, corsHeaders);
+      if (!auth.valid) return auth.response;
       return handleAutocompleteRequest(request, corsHeaders);
     }
 
     if (url.pathname === '/api/cache/clear' && request.method === 'POST') {
-      const authResult = await verifyAuth(request, env);
-      if (!authResult.valid) {
-        return jsonResponse({ error: authResult.error || 'Unauthorized' }, 401, corsHeaders);
-      }
+      const auth = await requireAuth(request, env, corsHeaders);
+      if (!auth.valid) return auth.response;
       return handleClearCache(request, env, corsHeaders);
     }
 
     if (url.pathname === '/api/cache/list' && request.method === 'GET') {
-      const authResult = await verifyAuth(request, env);
-      if (!authResult.valid) {
-        return jsonResponse({ error: authResult.error || 'Unauthorized' }, 401, corsHeaders);
-      }
+      const auth = await requireAuth(request, env, corsHeaders);
+      if (!auth.valid) return auth.response;
       return handleListCache(env, corsHeaders);
     }
 
@@ -167,14 +177,7 @@ async function verifyAuth(request, env) {
 async function generateToken(password, expiresAt) {
   const encoder = new TextEncoder();
   const payload = `${expiresAt}`;
-  const keyData = encoder.encode(password);
-  const key = await crypto.subtle.importKey(
-    'raw',
-    keyData,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
+  const key = await importHmacKey(password, ['sign']);
   const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
   const signatureArray = Array.from(new Uint8Array(signature));
   const signatureHex = signatureArray.map(b => b.toString(16).padStart(2, '0')).join('');
@@ -185,14 +188,7 @@ async function generateToken(password, expiresAt) {
 async function verifyToken(token, password) {
   try {
     const encoder = new TextEncoder();
-    const keyData = encoder.encode(password);
-    const key = await crypto.subtle.importKey(
-      'raw',
-      keyData,
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['verify']
-    );
+    const key = await importHmacKey(password, ['verify']);
     const decoded = atob(token);
     const parts = decoded.split(':');
     if (parts.length !== 2) return false;
@@ -224,6 +220,42 @@ function parseToken(token) {
   }
 }
 
+/**
+ * Middleware to verify authentication and return error response if invalid
+ * @param {Request} request - Request object
+ * @param {Object} env - Environment bindings
+ * @param {Object} corsHeaders - CORS headers
+ * @returns {Promise<{valid: boolean, response?: Response}>}
+ */
+async function requireAuth(request, env, corsHeaders) {
+  const authResult = await verifyAuth(request, env);
+  if (!authResult.valid) {
+    return {
+      valid: false,
+      response: jsonResponse({ error: authResult.error || 'Unauthorized' }, 401, corsHeaders)
+    };
+  }
+  return { valid: true };
+}
+
+/**
+ * Import crypto key for HMAC operations
+ * @param {string} password - Password to use as key
+ * @param {string[]} operations - Array of operations ('sign' or 'verify')
+ * @returns {Promise<CryptoKey>}
+ */
+async function importHmacKey(password, operations) {
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(password);
+  return await crypto.subtle.importKey(
+    'raw',
+    keyData,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    operations
+  );
+}
+
 /* ── AUTOCOMPLETE (unchanged) ───────────────────────────────────────────── */
 
 async function handleAutocompleteRequest(request, corsHeaders) {
@@ -234,11 +266,11 @@ async function handleAutocompleteRequest(request, corsHeaders) {
       return jsonResponse({ suggestions: [] }, 200, corsHeaders);
     }
 
-    const nominatimUrl = `https://nominatim.openstreetmap.org/search?` +
-      `format=json&q=${encodeURIComponent(query)}&limit=8&addressdetails=1&extratags=1`;
+    const nominatimUrl = `${NOMINATIM_BASE_URL}/search?` +
+      `format=json&q=${encodeURIComponent(query)}&limit=${AUTOCOMPLETE_LIMIT}&addressdetails=1&extratags=1`;
 
     const response = await fetch(nominatimUrl, {
-      headers: { 'User-Agent': 'Solar-Planner/1.0' }
+      headers: { 'User-Agent': NOMINATIM_USER_AGENT }
     });
 
     if (!response.ok) {
@@ -397,18 +429,166 @@ async function handleListCache(env, corsHeaders) {
 
 /* ── DATA ENDPOINT ───────────────────────────────────────────────────────── */
 
+/**
+ * Parse and validate location request body
+ * @param {Object} body - Request body
+ * @returns {{ location: string, apiLocation: string }}
+ * @throws {Error} If location is missing
+ */
+function parseLocationRequest(body) {
+  const location = body.location?.trim();
+  if (!location) throw new Error('Location is required');
+
+  let apiLocation = location;
+  if (body.lat != null && body.lon != null) {
+    apiLocation = `${body.lat},${body.lon}`;
+  }
+
+  return { location, apiLocation };
+}
+
+/**
+ * Build Visual Crossing API URL
+ * @param {string} apiLocation - Location string or coordinates
+ * @param {string} startStr - Start date (ISO format)
+ * @param {string} endStr - End date (ISO format)
+ * @param {string} apiKey - API key
+ * @returns {string} Full API URL
+ */
+function buildWeatherApiUrl(apiLocation, startStr, endStr, apiKey) {
+  const params = new URLSearchParams({
+    unitGroup: 'us',
+    include: 'days',
+    key: apiKey,
+    elements: 'datetime,tempmax,tempmin,temp,humidity,solarenergy'
+  });
+
+  return `https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/${encodeURIComponent(apiLocation)}/${startStr}/${endStr}?${params}`;
+}
+
+/**
+ * Enhance resolved address with reverse geocoding if needed
+ * @param {string} resolvedAddress - Address from weather API
+ * @param {number} latitude - Latitude
+ * @param {number} longitude - Longitude
+ * @returns {Promise<string>} Enhanced address or original if geocoding fails
+ */
+async function enhanceResolvedAddress(resolvedAddress, latitude, longitude) {
+  if (!looksLikeCoordinates(resolvedAddress)) {
+    return resolvedAddress;
+  }
+
+  try {
+    const nominatimUrl = `${NOMINATIM_BASE_URL}/reverse?format=json&lat=${latitude}&lon=${longitude}`;
+    const geoResponse = await fetch(nominatimUrl, {
+      headers: { 'User-Agent': NOMINATIM_USER_AGENT }
+    });
+
+    if (geoResponse.ok) {
+      const geoData = await geoResponse.json();
+      if (geoData.display_name) {
+        return geoData.display_name;
+      }
+    }
+  } catch (e) {
+    // Keep original if geocoding fails
+  }
+
+  return resolvedAddress;
+}
+
+/**
+ * Process weather data into monthly aggregates
+ * @param {Array} days - Array of daily weather data
+ * @returns {Array} Monthly weather data
+ */
+function processWeatherData(days) {
+  const weather = [];
+
+  // Pre-group days by month
+  const daysByMonth = Array.from({ length: 12 }, () => []);
+  for (const day of days) {
+    const month = new Date(day.datetime).getMonth();
+    if (month >= 0 && month < 12) {
+      daysByMonth[month].push(day);
+    }
+  }
+
+  // Calculate monthly averages
+  for (let m = 0; m < 12; m++) {
+    const monthDays = daysByMonth[m];
+    weather.push({
+      month: MONTHS[m],
+      highF: round(avg(monthDays, 'tempmax'), 1),
+      lowF: round(avg(monthDays, 'tempmin'), 1),
+      meanF: round(avg(monthDays, 'temp'), 1),
+      humidity: round(avg(monthDays, 'humidity'), 1)
+    });
+  }
+
+  return weather;
+}
+
+/**
+ * Process solar data with tilt calculations
+ * @param {Array} days - Array of daily weather data
+ * @param {number} latitude - Location latitude
+ * @returns {Array} Monthly solar data with tilt calculations
+ */
+function processSolarData(days, latitude) {
+  const solar = [];
+  const fixedTilt = Math.round(Math.abs(latitude));
+  const yearlyDirection = latitude >= 0 ? 'S' : 'N';
+
+  // Pre-group days by month
+  const daysByMonth = Array.from({ length: 12 }, () => []);
+  for (const day of days) {
+    const month = new Date(day.datetime).getMonth();
+    if (month >= 0 && month < 12) {
+      daysByMonth[month].push(day);
+    }
+  }
+
+  // Calculate monthly solar data
+  for (let m = 0; m < 12; m++) {
+    const monthDays = daysByMonth[m];
+    const solarEnergyMJ = avg(monthDays, 'solarenergy');
+    const flatPSH = solarEnergyMJ / MJ_TO_KWH;
+
+    const monthNum = m + 1;
+    const { tilt: monthlyTilt, direction: monthlyDirection } = calculateMonthlyOptimalTilt(latitude, monthNum);
+    const monthlyTiltGain = calculateMaxTiltGain(latitude, monthNum);
+    const fixedTiltGain = calculateTiltGain(latitude, fixedTilt, monthNum);
+
+    const monthlyPSH = flatPSH * monthlyTiltGain;
+    const fixedPSH = flatPSH * Math.min(fixedTiltGain, monthlyTiltGain);
+
+    solar.push({
+      month: MONTHS[m],
+      monthlyOptimal: {
+        tilt: `${monthlyTilt}° ${monthlyDirection}`,
+        psh: round(monthlyPSH, 2)
+      },
+      yearlyFixed: {
+        tilt: `${fixedTilt}° ${yearlyDirection}`,
+        psh: round(fixedPSH, 2)
+      },
+      flat: {
+        tilt: '0°',
+        psh: round(flatPSH, 2)
+      }
+    });
+  }
+
+  return solar;
+}
+
 async function handleDataRequest(request, env, ctx, corsHeaders) {
   try {
     const body = await request.json();
-    const location = body.location?.trim();
-    if (!location) return jsonResponse({ error: 'Location is required' }, 400, corsHeaders);
+    const { location, apiLocation } = parseLocationRequest(body);
 
-    let apiLocation = location;
-    if (body.lat != null && body.lon != null) {
-      apiLocation = `${body.lat},${body.lon}`;
-    }
-
-    // Use apiLocation for cache key to ensure consistency (coordinates preferred)
+    // Check cache
     const cacheKey = normalizeCacheKey(apiLocation);
     const cached = await env.SOLAR_CACHE.get(cacheKey, 'json');
     if (cached) {
@@ -416,6 +596,7 @@ async function handleDataRequest(request, env, ctx, corsHeaders) {
       return jsonResponse({ ...cached, cached: true, yearsOfData: years }, 200, corsHeaders);
     }
 
+    // Setup API call
     const apiKey = env.VISUAL_CROSSING_API_KEY;
     if (!apiKey) return jsonResponse({ error: 'API key not configured' }, 500, corsHeaders);
 
@@ -426,19 +607,10 @@ async function handleDataRequest(request, env, ctx, corsHeaders) {
     const startStr = startDate.toISOString().split('T')[0];
     const endStr = endDate.toISOString().split('T')[0];
 
-    // Single API call with all needed elements
-    // latitude, longitude, resolvedAddress come from response root automatically
-    const params = new URLSearchParams({
-      unitGroup: 'us',
-      include: 'days',
-      key: apiKey,
-      elements: 'datetime,tempmax,tempmin,temp,humidity,solarenergy'
-    });
-
-    const apiUrl = `https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/${encodeURIComponent(apiLocation)}/${startStr}/${endStr}?${params}`;
-    
+    // Fetch weather data
+    const apiUrl = buildWeatherApiUrl(apiLocation, startStr, endStr, apiKey);
     const response = await fetch(apiUrl);
-    
+
     if (!response.ok) {
       if (response.status === 429) {
         return jsonResponse({ error: 'API rate limit exceeded. Please try again later.' }, 429, corsHeaders);
@@ -453,98 +625,17 @@ async function handleDataRequest(request, env, ctx, corsHeaders) {
       return jsonResponse({ error: 'No weather data available for this location' }, 400, corsHeaders);
     }
 
-    // If resolvedAddress is just coordinates, try reverse geocoding with Nominatim
-    if (looksLikeCoordinates(resolvedAddress)) {
-      try {
-        const nominatimUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`;
-        const geoResponse = await fetch(nominatimUrl, {
-          headers: { 'User-Agent': 'Solar-Planner/1.0' }
-        });
-        if (geoResponse.ok) {
-          const geoData = await geoResponse.json();
-          if (geoData.display_name) {
-            resolvedAddress = geoData.display_name;
-          }
-        }
-      } catch (e) {
-        // Keep original resolvedAddress if reverse geocoding fails
-      }
-    }
+    resolvedAddress = await enhanceResolvedAddress(resolvedAddress, latitude, longitude);
 
-    // Validate latitude/longitude
     if (latitude == null || longitude == null || isNaN(latitude) || isNaN(longitude)) {
       return jsonResponse({ error: 'Invalid location coordinates received from API' }, 500, corsHeaders);
     }
 
-    // Calculate yearly fixed tilt (equals latitude)
-    const fixedTilt = Math.round(Math.abs(latitude));
-    const yearlyDirection = latitude >= 0 ? 'S' : 'N';
+    // Process data
+    const weather = processWeatherData(days);
+    const solar = processSolarData(days, latitude);
 
-    const weather = [];
-    const solar = [];
-
-    // Pre-group days by month for better performance
-    const daysByMonth = Array.from({ length: 12 }, () => []);
-    for (const day of days) {
-      const month = new Date(day.datetime).getMonth();
-      if (month >= 0 && month < 12) {
-        daysByMonth[month].push(day);
-      }
-    }
-
-    for (let m = 0; m < 12; m++) {
-      // Use pre-grouped days
-      const monthDays = daysByMonth[m];
-
-      const highF = avg(monthDays, 'tempmax');
-      const lowF = avg(monthDays, 'tempmin');
-      const meanF = avg(monthDays, 'temp');
-      const humidity = avg(monthDays, 'humidity');
-      
-      // solarenergy from Visual Crossing is in MJ/m²/day (megajoules per square meter)
-      // Convert to kWh/m²/day (PSH) by dividing by MJ_TO_KWH
-      const solarEnergyMJ = avg(monthDays, 'solarenergy');
-      const flatPSH = solarEnergyMJ / MJ_TO_KWH;
-
-      weather.push({
-        month: MONTHS[m],
-        highF: round(highF, 1),
-        lowF: round(lowF, 1),
-        meanF: round(meanF, 1),
-        humidity: round(humidity, 1)
-      });
-
-      // Calculate PSH for tilted panels using solar geometry
-      const monthNum = m + 1;
-      const { tilt: monthlyTilt, direction: monthlyDirection } = calculateMonthlyOptimalTilt(latitude, monthNum);
-      
-      // Calculate tilt gains using solar geometry
-      // Monthly optimal always gets maximum gain (it's the optimal by definition)
-      const monthlyTiltGain = calculateMaxTiltGain(latitude, monthNum);
-      // Fixed tilt gets gain based on how close it is to monthly optimal
-      const fixedTiltGain = calculateTiltGain(latitude, fixedTilt, monthNum);
-
-      // Ensure hierarchy: monthly >= fixed >= flat
-      const monthlyPSH = flatPSH * monthlyTiltGain;
-      const fixedPSH = flatPSH * Math.min(fixedTiltGain, monthlyTiltGain);
-
-      solar.push({
-        month: MONTHS[m],
-        monthlyOptimal: {
-          tilt: `${monthlyTilt}° ${monthlyDirection}`,
-          psh: round(monthlyPSH, 2)
-        },
-        yearlyFixed: {
-          tilt: `${fixedTilt}° ${yearlyDirection}`,
-          psh: round(fixedPSH, 2)
-        },
-        flat: {
-          tilt: '0°',
-          psh: round(flatPSH, 2)
-        }
-      });
-    }
-
+    // Build and cache result
     const result = {
       location: resolvedAddress,
       latitude: round(latitude, 4),
@@ -600,7 +691,44 @@ function calculateMonthlyOptimalTilt(latitude, month) {
 }
 
 /**
+ * Get latitude-dependent gain range based on location
+ * Different latitudes experience different sun angles year-round, affecting tilt benefits
+ * @param {number} latitude - Location latitude in degrees
+ * @returns {{ minGain: number, maxGain: number }}
+ */
+function getLatitudeGainRange(latitude) {
+  const absLat = Math.abs(latitude);
+
+  if (absLat < LATITUDE_BANDS.EQUATORIAL.max) {
+    // Equatorial: Sun nearly overhead year-round, less benefit from tilting
+    return {
+      minGain: LATITUDE_BANDS.EQUATORIAL.minGain,
+      maxGain: LATITUDE_BANDS.EQUATORIAL.maxGain
+    };
+  } else if (absLat < LATITUDE_BANDS.MID_LATITUDE.max) {
+    // Mid-latitude: Moderate sun angles, current model is reasonable
+    return {
+      minGain: LATITUDE_BANDS.MID_LATITUDE.minGain,
+      maxGain: LATITUDE_BANDS.MID_LATITUDE.maxGain
+    };
+  } else if (absLat < LATITUDE_BANDS.HIGH_LATITUDE.max) {
+    // High latitude: Low sun angles, significant benefit from tilting
+    return {
+      minGain: LATITUDE_BANDS.HIGH_LATITUDE.minGain,
+      maxGain: LATITUDE_BANDS.HIGH_LATITUDE.maxGain
+    };
+  } else {
+    // Polar: Extreme low sun angles, very high benefit from tilting
+    return {
+      minGain: LATITUDE_BANDS.POLAR.minGain,
+      maxGain: LATITUDE_BANDS.POLAR.maxGain
+    };
+  }
+}
+
+/**
  * Calculate the maximum tilt gain for a month (when panel is at optimal tilt)
+ * Uses latitude-dependent gain ranges to reflect regional solar geometry
  * @param {number} latitude - Location latitude in degrees
  * @param {number} month - Month number (1-12)
  * @returns {number} Maximum gain factor for optimal tilt
@@ -615,15 +743,17 @@ function calculateMaxTiltGain(latitude, month) {
   const noonElevation = 90 - optimalTilt;
   
   // Lower sun elevation means more gain from tilting
-  // At 90° elevation (sun directly overhead): no benefit from tilting
-  // At 20° elevation (sun low): significant benefit from tilting
+  // At 90° elevation (sun directly overhead): minimal benefit from tilting
+  // At low elevation (sun low): significant benefit from tilting
   const elevationFactor = 1 - (noonElevation / 90); // 0 at overhead, 1 at horizon
-  
-  // Base gain: 5% minimum + up to 35% more based on sun angle
-  // This gives realistic gains of 1.05x to 1.40x
-  const gain = 1.05 + (0.35 * elevationFactor);
-  
-  return Math.max(1.05, Math.min(1.45, gain));
+
+  // Use latitude-dependent gain ranges (varies by region)
+  // Equatorial: 1.03-1.15x, Mid-latitude: 1.05-1.40x, High-latitude: 1.15-1.80x, Polar: 1.20-2.20x
+  const { minGain, maxGain } = getLatitudeGainRange(latitude);
+  const gainRange = maxGain - minGain;
+  const gain = minGain + (gainRange * elevationFactor);
+
+  return Math.max(minGain, Math.min(maxGain, gain));
 }
 
 /**
@@ -649,9 +779,10 @@ function calculateTiltGain(latitude, tiltAngle, month) {
   const tiltDifference = Math.abs(tiltAngle - optimalTiltForMonth);
   const tiltDiffRad = (tiltDifference * Math.PI) / 180;
 
-  // Efficiency based on tilt deviation
-  // cos(0°) = 1.0 (perfect), cos(45°) ≈ 0.71, cos(90°) = 0
-  const tiltEfficiency = Math.cos(tiltDiffRad);
+  // Efficiency based on tilt deviation using cos^1.5 for steeper penalty
+  // cos(0°)^1.5 = 1.0 (perfect), cos(20°)^1.5 ≈ 0.91, cos(30°)^1.5 ≈ 0.80, cos(45°)^1.5 ≈ 0.60
+  // Steeper curve makes fixed tilt deviation more costly, highlighting benefit of monthly adjustments
+  const tiltEfficiency = Math.pow(Math.cos(tiltDiffRad), TILT_PENALTY_EXPONENT);
 
   // Apply efficiency to scale between 1.0 and maxGain
   const gain = 1.0 + (maxGain - 1.0) * tiltEfficiency;

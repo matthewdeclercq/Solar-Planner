@@ -2,7 +2,7 @@
  * Results display module
  */
 
-import { resolvedLocationEl, coordinatesEl, yearsInfoEl, cacheInfoEl, clearCacheBtn, solarGraphToggle, querySelector } from './dom.js';
+import { resolvedLocationEl, coordinatesEl, yearsInfoEl, cacheInfoEl, cacheInfoText, clearCacheBtn, solarGraphToggle, querySelector, getElement } from './dom.js';
 import { renderWeatherTable, renderSolarTable } from './tables.js';
 import { renderWeatherChart, renderSolarChart, renderSolarTiltChart } from './charts.js';
 import { showResults } from './ui.js';
@@ -26,11 +26,13 @@ export function displayResults(data, cacheKeyLocation) {
   
   // Show cache status
   if (data.cached) {
-    cacheInfoEl.textContent = '✓ Loaded from cache';
+    cacheInfoText.textContent = '✓ Loaded from cache';
     cacheInfoEl.classList.add('cached');
+    clearCacheBtn.classList.add('show');
   } else {
-    cacheInfoEl.textContent = 'Fresh data fetched';
+    cacheInfoText.textContent = 'Fresh data fetched';
     cacheInfoEl.classList.remove('cached');
+    clearCacheBtn.classList.remove('show');
   }
   
   // Render tables
@@ -53,7 +55,18 @@ export function displayResults(data, cacheKeyLocation) {
     // Ensure correct label is shown (PSH is default)
     handleSolarGraphToggle('psh');
   }
-  
+
+  // Handle power-gen toggle visibility
+  const powerGenGraphView = querySelector('[data-section="power-gen"][data-view="graph"].view-content');
+  const powerGenViewToggle = getElement('power-gen-view-toggle');
+  if (powerGenViewToggle) {
+    if (powerGenGraphView && !powerGenGraphView.classList.contains('hidden')) {
+      powerGenViewToggle.style.display = 'flex';
+    } else {
+      powerGenViewToggle.style.display = 'none';
+    }
+  }
+
   // Store the original input location used for cache key (not the resolved address)
   // This ensures cache clearing uses the same key that was used for caching
   clearCacheBtn.dataset.currentLocation = cacheKeyLocation || data.location;

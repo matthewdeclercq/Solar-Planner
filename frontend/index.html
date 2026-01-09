@@ -17,30 +17,40 @@
   
   <!-- Login Page -->
   <div id="login-page" class="login-page hidden">
-    <div class="theme-toggle-container">
-      <button class="theme-toggle-btn" aria-label="Toggle theme">
-        <svg class="sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="5"/>
-          <line x1="12" y1="1" x2="12" y2="3"/>
-          <line x1="12" y1="21" x2="12" y2="23"/>
-          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-          <line x1="1" y1="12" x2="3" y2="12"/>
-          <line x1="21" y1="12" x2="23" y2="12"/>
-          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-        </svg>
-        <svg class="moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-        </svg>
-      </button>
-    </div>
+    <!-- Navigation -->
+    <nav class="nav" role="navigation" aria-label="Main navigation">
+      <div class="nav-container">
+        <a href="#" class="nav-logo" aria-label="Solar Planner Home">
+          <img src="assets/CT_LOGO.webp" alt="Solar Planner Logo" class="nav-logo-img" width="2430" height="874">
+        </a>
+        <h1 class="nav-title">Solar Planner</h1>
+        <div class="nav-actions">
+          <button class="theme-toggle-btn nav-btn" aria-label="Toggle theme">
+            <svg class="sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="5"/>
+              <line x1="12" y1="1" x2="12" y2="3"/>
+              <line x1="12" y1="21" x2="12" y2="23"/>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+              <line x1="1" y1="12" x2="3" y2="12"/>
+              <line x1="21" y1="12" x2="23" y2="12"/>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            </svg>
+            <svg class="moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+          </button>
+          <button class="menu-btn nav-btn" aria-label="Open menu" aria-expanded="false">
+            <span class="menu-line"></span>
+            <span class="menu-line"></span>
+            <span class="menu-line"></span>
+          </button>
+        </div>
+      </div>
+    </nav>
     <main class="container">
       <div class="login-container">
-        <div class="logo">
-          <img src="assets/CT_LOGO.webp" alt="Logo" class="logo-image">
-          <h1>Solar Planner</h1>
-        </div>
         <form id="login-form" class="login-form">
           <div class="input-wrapper">
             <svg class="lock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -63,7 +73,7 @@
               <polyline points="12 5 19 12 12 19"/>
             </svg>
           </button>
-          <div id="login-error" class="error-message hidden" style="margin-top: 1rem;">
+          <div id="login-error" class="error-message hidden login-error-spacing">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"/>
               <line x1="12" y1="8" x2="12" y2="12"/>
@@ -78,32 +88,42 @@
   
   <!-- Main Application -->
   <div id="main-app" class="main-app hidden">
-    <div class="theme-toggle-container">
-      <button class="theme-toggle-btn" aria-label="Toggle theme">
-        <svg class="sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="5"/>
-          <line x1="12" y1="1" x2="12" y2="3"/>
-          <line x1="12" y1="21" x2="12" y2="23"/>
-          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-          <line x1="1" y1="12" x2="3" y2="12"/>
-          <line x1="21" y1="12" x2="23" y2="12"/>
-          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-        </svg>
-        <svg class="moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-        </svg>
-      </button>
-    </div>
+    <!-- Navigation -->
+    <nav class="nav" role="navigation" aria-label="Main navigation">
+      <div class="nav-container">
+        <a href="#" class="nav-logo" aria-label="Solar Planner Home">
+          <img src="assets/CT_LOGO.webp" alt="Solar Planner Logo" class="nav-logo-img" width="2430" height="874">
+        </a>
+        <h1 class="nav-title">Solar Planner</h1>
+        <div class="nav-actions">
+          <button class="theme-toggle-btn nav-btn" aria-label="Toggle theme">
+            <svg class="sun-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="5"/>
+              <line x1="12" y1="1" x2="12" y2="3"/>
+              <line x1="12" y1="21" x2="12" y2="23"/>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+              <line x1="1" y1="12" x2="3" y2="12"/>
+              <line x1="21" y1="12" x2="23" y2="12"/>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            </svg>
+            <svg class="moon-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+          </button>
+          <button class="menu-btn nav-btn" aria-label="Open menu" aria-expanded="false">
+            <span class="menu-line"></span>
+            <span class="menu-line"></span>
+            <span class="menu-line"></span>
+          </button>
+        </div>
+      </div>
+    </nav>
     <main class="container">
       <!-- Header -->
       <header class="header">
-        <div class="logo">
-          <img src="assets/CT_LOGO.webp" alt="Logo" class="logo-image">
-          <h1>Solar Planner</h1>
-        </div>
-        <p class="tagline">Historical weather data & peak sun hours for solar panel planning</p>
+        <p class="tagline">Comprehensive solar planning: weather analysis, peak sun hours, tilt optimization, and power generation estimates</p>
       </header>
 
     <!-- Search Section -->
@@ -157,15 +177,11 @@
           <h2 id="resolved-location"></h2>
           <p id="coordinates"></p>
           <p id="years-info" class="years-info"></p>
-          <p id="cache-info" class="cache-info"></p>
+          <p id="cache-info" class="cache-info">
+            <span id="cache-info-text"></span>
+            <button id="clear-cache-btn" class="clear-cache-link" title="Clear cached data">Clear cache</button>
+          </p>
         </div>
-        <button id="clear-cache-btn" class="clear-cache-btn" title="Clear cached data">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="3 6 5 6 21 6"/>
-            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-          </svg>
-          Clear Cache
-        </button>
       </div>
 
       <!-- Section 1: Historical Weather -->
@@ -196,7 +212,10 @@
             </button>
           </div>
         </div>
-        
+
+        <!-- Chart Labels -->
+        <p class="chart-label" id="weather-label">Historical weather averages are essential for effective solar planning, as they inform optimal insulation requirements and HVAC consumption patterns. Colder periods may necessitate additional heating, while warmer months increase cooling demands—directly impacting overall energy costs and solar system sizing.</p>
+
         <div class="table-container view-content hidden" data-section="weather" data-view="table">
           <table id="weather-table" class="data-table">
             <thead>
@@ -233,11 +252,11 @@
                 <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
                 <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
               </svg>
-              Peak Sun Hours (PSH)
+              Peak Sun Hours (PSH) & Optimal Panel Tilt Angle
             </h3>
             <p class="section-description">kWh/m²/day on panel surface at different tilt angles</p>
           </div>
-          <div style="display: flex; gap: var(--space-md); align-items: center; flex-wrap: wrap;">
+          <div class="section-header-actions">
             <div class="view-toggle">
               <button class="toggle-btn" data-view="table" data-section="solar" aria-label="Table view">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -262,7 +281,11 @@
             </div>
           </div>
         </div>
-        
+
+        <!-- Chart Labels -->
+        <p class="chart-label" id="solar-psh-label">Peak Sun Hours (PSH) represents the average daily solar energy received per square meter of panel surface. Higher values indicate more solar energy available. Monthly Optimal Tilt adjusts the panel angle each month for maximum energy capture, while Yearly Fixed Tilt uses a constant angle set to the location's latitude.</p>
+        <p class="chart-label hidden" id="solar-tilt-label">Tilt angles show the optimal panel orientation for each month. Monthly Optimal Tilt changes throughout the year to track the sun's position, while Yearly Fixed Tilt remains constant at the location's latitude.</p>
+
         <div class="table-container view-content hidden" data-section="solar" data-view="table">
           <table id="solar-table" class="data-table solar-table">
             <thead>
@@ -284,10 +307,6 @@
           </table>
         </div>
 
-        <!-- Chart Labels -->
-        <p class="chart-label view-content" id="solar-psh-label" data-section="solar" data-view="graph">Peak Sun Hours (PSH) represents the average daily solar energy received per square meter of panel surface. Higher values indicate more solar energy available. Monthly Optimal Tilt adjusts the panel angle each month for maximum energy capture, while Yearly Fixed Tilt uses a constant angle set to the location's latitude.</p>
-        <p class="chart-label hidden view-content" id="solar-tilt-label" data-section="solar" data-view="graph">Tilt angles show the optimal panel orientation for each month. Positive values indicate South-facing (toward the equator), while negative values indicate North-facing. Monthly Optimal Tilt changes throughout the year to track the sun's position, while Yearly Fixed Tilt remains constant at the location's latitude.</p>
-
         <div class="chart-container view-content" data-section="solar" data-view="graph">
           <canvas id="solar-chart" data-view="psh"></canvas>
           <canvas id="solar-tilt-chart" class="hidden" data-view="tilt"></canvas>
@@ -306,6 +325,30 @@
             </h3>
             <p class="section-description">Estimate your solar panel output based on PSH data</p>
           </div>
+          <div class="section-header-actions">
+            <div class="view-toggle">
+              <button class="toggle-btn" data-view="table" data-section="power-gen" aria-label="Table view">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/>
+                </svg>
+                Table
+              </button>
+              <button class="toggle-btn active" data-view="graph" data-section="power-gen" aria-label="Graph view">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                </svg>
+                Graph
+              </button>
+            </div>
+            <div class="view-toggle" id="power-gen-view-toggle">
+              <button class="toggle-btn active" data-view="daily" data-section="power-gen-view" aria-label="Daily view">
+                Daily
+              </button>
+              <button class="toggle-btn" data-view="monthly" data-section="power-gen-view" aria-label="Monthly view">
+                Monthly
+              </button>
+            </div>
+          </div>
         </div>
 
         <!-- Power Calculator Inputs -->
@@ -313,9 +356,9 @@
           <div class="input-group">
             <label for="panel-wattage">Panel Wattage</label>
             <div class="input-with-suffix">
-              <input 
-                type="number" 
-                id="panel-wattage" 
+              <input
+                type="number"
+                id="panel-wattage"
                 placeholder="e.g. 400"
                 min="1"
                 max="100000"
@@ -327,10 +370,44 @@
         </div>
 
         <!-- Chart Label -->
-        <p class="chart-label hidden" id="power-gen-label">Average daily power generation (kWh/day) for each month, comparing Monthly Optimal Tilt, Yearly Fixed Tilt, and Flat (0°) configurations. Click any bar to see the hourly breakdown for that month and tilt method.</p>
+        <p class="chart-label" id="power-gen-label">Power generation estimates for each month, comparing Monthly Optimal Tilt, Yearly Fixed Tilt, and Flat (0°) configurations. Table shows daily and monthly values with annual totals at the bottom.</p>
+
+        <!-- Table View -->
+        <div class="table-container view-content hidden" data-section="power-gen" data-view="table">
+          <table id="power-gen-table" class="data-table">
+            <thead>
+              <tr>
+                <th rowspan="2">Month</th>
+                <th colspan="2">Monthly Optimal</th>
+                <th colspan="2">Yearly Fixed</th>
+                <th colspan="2">Flat (0°)</th>
+              </tr>
+              <tr>
+                <th>Daily (kWh)</th>
+                <th>Monthly (kWh)</th>
+                <th>Daily (kWh)</th>
+                <th>Monthly (kWh)</th>
+                <th>Daily (kWh)</th>
+                <th>Monthly (kWh)</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+            <tfoot>
+              <tr class="total-row">
+                <td><strong>Annual Total</strong></td>
+                <td></td>
+                <td><strong id="power-gen-monthly-optimal-total">-</strong></td>
+                <td></td>
+                <td><strong id="power-gen-yearly-fixed-total">-</strong></td>
+                <td></td>
+                <td><strong id="power-gen-flat-total">-</strong></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
 
         <!-- Monthly Power Generation Chart -->
-        <div class="chart-container" id="power-gen-container">
+        <div class="chart-container view-content" id="power-gen-container" data-section="power-gen" data-view="graph">
           <p class="chart-placeholder" id="power-gen-placeholder">Enter your panel wattage above to see estimated power generation</p>
           <canvas id="power-gen-chart" class="hidden"></canvas>
         </div>

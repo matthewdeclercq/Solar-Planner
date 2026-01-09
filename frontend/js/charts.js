@@ -4,8 +4,9 @@
 
 import { weatherChartEl, solarChartEl, solarTiltChartEl } from './dom.js';
 import { createRgbaColor } from './utils.js';
-import { Y_AXIS_PADDING_FACTOR } from './config.js';
+import { Y_AXIS_PADDING_FACTOR, CHART_RESIZE_DEBOUNCE_MS } from './config.js';
 import { getCurrentTheme } from './theme.js';
+import { updateChartDefaults, safeDestroyChart } from './chart-utils.js';
 
 // Chart instances
 let weatherChart = null;
@@ -18,24 +19,6 @@ let storedSolarData = null;
 
 // Chart resize debouncing
 let chartResizeTimeout = null;
-
-/**
- * Update Chart.js defaults based on current theme
- */
-function updateChartDefaults() {
-  const theme = getCurrentTheme();
-  Chart.defaults.font.family = "'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-  
-  if (theme === 'light') {
-    // Darker grey for light mode - matches --text-secondary in light theme
-    Chart.defaults.color = '#57534E';
-    Chart.defaults.borderColor = 'rgba(120, 113, 108, 0.15)';
-  } else {
-    // Original colors for dark mode
-    Chart.defaults.color = '#8DA4BE';
-    Chart.defaults.borderColor = 'rgba(141, 164, 190, 0.15)';
-  }
-}
 
 // Initialize Chart.js defaults
 updateChartDefaults();
@@ -97,18 +80,6 @@ export const createYAxis = (title, position = 'left', min = null, max = null) =>
 };
 
 /**
- * Safely destroy a chart instance
- * @param {Chart|null} chart - Chart instance to destroy
- * @returns {null}
- */
-function safeDestroyChart(chart) {
-  if (chart) {
-    chart.destroy();
-  }
-  return null;
-}
-
-/**
  * Destroy all chart instances
  * @param {boolean} includePowerGen - Whether to also destroy power generation charts
  */
@@ -128,7 +99,7 @@ export function destroyAllCharts(includePowerGen = true) {
  * @param {Chart|null} chart - Chart instance
  * @param {number} delay - Delay in milliseconds
  */
-export function debounceChartResize(chart, delay = 100) {
+export function debounceChartResize(chart, delay = CHART_RESIZE_DEBOUNCE_MS) {
   if (chartResizeTimeout) {
     clearTimeout(chartResizeTimeout);
   }
@@ -275,12 +246,25 @@ export function renderSolarChart(solar) {
   const ctx = solarChartEl.getContext('2d');
   
   solarChart = safeDestroyChart(solarChart);
-  
-  // Extract data arrays directly in a single pass
-  const labels = solar.map(s => s.month);
-  const monthlyOptimalPsh = solar.map(s => s.monthlyOptimal.psh);
-  const yearlyFixedPsh = solar.map(s => s.yearlyFixed.psh);
-  const flatPsh = solar.map(s => s.flat.psh);
+
+  // Extract all data in a single pass using reduce
+  const chartData = solar.reduce((acc, s) => {
+    acc.labels.push(s.month);
+    acc.monthlyOptimalPsh.push(s.monthlyOptimal.psh);
+    acc.yearlyFixedPsh.push(s.yearlyFixed.psh);
+    acc.flatPsh.push(s.flat.psh);
+    return acc;
+  }, {
+    labels: [],
+    monthlyOptimalPsh: [],
+    yearlyFixedPsh: [],
+    flatPsh: []
+  });
+
+  const { labels, monthlyOptimalPsh, yearlyFixedPsh, flatPsh } = chartData;
+
+  // Get the yearly fixed tilt value (same for all months)
+  const yearlyFixedTilt = solar[0]?.yearlyFixed?.tilt || '';
 
   // Calculate dynamic Y-axis bounds based on data range
   const allPsh = [...monthlyOptimalPsh, ...yearlyFixedPsh, ...flatPsh];
@@ -308,7 +292,7 @@ export function renderSolarChart(solar) {
           pointHoverRadius: 7,
           fill: true
         }),
-        createLineDataset('Yearly Fixed Tilt', yearlyFixedPsh, yearlyColor),
+        createLineDataset(`Yearly Fixed Tilt (${yearlyFixedTilt})`, yearlyFixedPsh, yearlyColor),
         createLineDataset('Flat (0°)', flatPsh, flatColor, {
           borderDash: [5, 5]
         })
@@ -354,20 +338,23 @@ export function renderSolarTiltChart(solar) {
   const labels = solar.map(s => s.month);
   const monthlyOptimalTilt = solar.map(s => parseTiltAngle(s.monthlyOptimal.tilt));
   const yearlyFixedTilt = solar.map(s => parseTiltAngle(s.yearlyFixed.tilt));
-  
+
+  // Get the yearly fixed tilt value for label (same for all months)
+  const yearlyFixedTiltLabel = solar[0]?.yearlyFixed?.tilt || '';
+
   // Find the range of tilt angles to set appropriate Y-axis bounds
   const allTilts = [...monthlyOptimalTilt, ...yearlyFixedTilt];
-  const maxAbsTilt = allTilts.length > 0 
+  const maxAbsTilt = allTilts.length > 0
     ? Math.max(...allTilts.map(Math.abs))
     : 90; // Default to 90 if no data
   const yAxisMax = Math.ceil(maxAbsTilt * Y_AXIS_PADDING_FACTOR);
   const yAxisMin = -yAxisMax; // Symmetric around 0
-  
+
   // Get theme-aware colors matching the PSH chart
   const theme = getCurrentTheme();
   const monthlyColor = theme === 'light' ? '#D97706' : '#F5A623';
   const yearlyColor = theme === 'light' ? '#0369A1' : '#0096C7';
-  
+
   solarTiltChart = new Chart(ctx, {
     type: 'line',
     data: {
@@ -379,7 +366,7 @@ export function renderSolarTiltChart(solar) {
           pointHoverRadius: 7,
           fill: true
         }),
-        createLineDataset('Yearly Fixed Tilt', yearlyFixedTilt, yearlyColor, {
+        createLineDataset(`Yearly Fixed Tilt (${yearlyFixedTiltLabel})`, yearlyFixedTilt, yearlyColor, {
           borderWidth: 2,
           pointRadius: 4,
           pointHoverRadius: 6

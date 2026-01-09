@@ -16,4 +16,11 @@ export const TOKEN_EXPIRY_KEY = 'solar_planner_token_expiry';
 
 // Chart configuration
 export const Y_AXIS_PADDING_FACTOR = 1.1; // 10% increase (multiplier) for chart Y-axis
+export const CHART_RESIZE_DEBOUNCE_MS = 100;
+
+// Autocomplete configuration
+export const AUTOCOMPLETE_DEBOUNCE_MS = 300;
+
+// Power generation configuration
+export const POWER_ROUNDING_DECIMALS = 2;
 

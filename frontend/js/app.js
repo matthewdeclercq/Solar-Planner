@@ -57,6 +57,11 @@ function setupViewToggles() {
       const section = button.dataset.section;
       const view = button.dataset.view;
       
+      // Skip power-gen-view section - handled separately in setupPowerGenListeners()
+      if (section === 'power-gen-view') {
+        return;
+      }
+      
       // Update button states
       const sectionButtons = querySelectorAll(`[data-section="${section}"].toggle-btn`);
       sectionButtons.forEach(btn => btn.classList.remove('active'));
@@ -88,6 +93,32 @@ function setupThemeToggle() {
 }
 
 /**
+ * Initialize navigation scroll behavior
+ * Adds 'scrolled' class to nav-container when user scrolls past threshold
+ */
+function initializeNavigationScroll() {
+  try {
+    const navContainer = document.querySelector('.nav-container');
+    if (!navContainer) {
+      return; // Navigation container not found
+    }
+    
+    const SCROLL_THRESHOLD = 100;
+    
+    window.addEventListener('scroll', function() {
+      const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+      if (scrollTop > SCROLL_THRESHOLD) {
+        navContainer.classList.add('scrolled');
+      } else {
+        navContainer.classList.remove('scrolled');
+      }
+    }, { passive: true });
+  } catch (error) {
+    console.error('Error initializing navigation scroll:', error);
+  }
+}
+
+/**
  * Initialize the application
  */
 async function init() {
@@ -96,6 +127,9 @@ async function init() {
   
   // Setup theme toggle button
   setupThemeToggle();
+  
+  // Initialize navigation scroll behavior
+  initializeNavigationScroll();
   
   // Check authentication first
   if (!isAuthenticated()) {
