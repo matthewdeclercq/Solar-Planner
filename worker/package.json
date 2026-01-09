@@ -8,15 +8,19 @@
     "deploy": "wrangler deploy",
     "tail": "wrangler tail"
   },
-  "keywords": ["solar", "weather", "cloudflare", "worker"],
+  "keywords": [
+    "solar",
+    "weather",
+    "cloudflare",
+    "worker"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "wrangler": "^3.114.16"
+    "wrangler": "^4.58.0"
   },
   "overrides": {
     "rollup-plugin-inject": "npm:@rollup/plugin-inject@^5.0.0",
     "sourcemap-codec": "npm:@jridgewell/sourcemap-codec@^1.5.0"
   }
 }
-
