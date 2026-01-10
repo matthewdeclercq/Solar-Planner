@@ -41,6 +41,8 @@ TypeScript with Vite build system and Alpine.js for reactive UI.
 - `authService.ts` - Token management (localStorage)
 - `configService.ts` - Environment-based API URL detection, constants
 - `domService.ts` - Typed DOM element accessors with caching
+- `errorHandlerService.ts` - Error handling and error boundary pattern
+- `loggerService.ts` - Centralized logging with log levels (DEBUG/INFO/WARN/ERROR)
 - `themeService.ts` - Light/dark theme toggle (persisted)
 - `viewToggleService.ts` - Table/graph view toggles, solar graph toggles
 
@@ -65,9 +67,14 @@ TypeScript with Vite build system and Alpine.js for reactive UI.
   - `index.ts` - Module exports and event listeners
 
 **Stores (`src/stores/`):**
-- `appStore.ts` - Alpine.js store for centralized state
+- `index.ts` - Store initialization orchestrator
+- `authStore.ts` - Authentication state and token management
+- `dataStore.ts` - Location and weather/solar data state
+- `powerGenStore.ts` - Power generation calculator state
+- `uiStore.ts` - UI state (theme, view toggles, errors)
 
 **Types (`src/types/`):**
+- `index.ts` - Central type exports
 - `api.ts` - Request/response interfaces
 - `weather.ts` - Weather data types
 - `solar.ts` - Solar calculation types
@@ -75,6 +82,7 @@ TypeScript with Vite build system and Alpine.js for reactive UI.
 - `charts.ts` - Chart configuration types
 - `store.ts` - Alpine.js store types
 - `data.ts` - Combined location data types
+- `alpine.d.ts` - Alpine.js TypeScript declarations
 
 **Utilities (`src/utils/`):**
 - `index.ts` - URL params, HTML escaping, color conversion
@@ -150,10 +158,13 @@ Modular TypeScript architecture:
 - `chartUtils.ts` manages theme-aware defaults
 - Charts re-render on theme change
 
-**Alpine.js Store:**
-- Centralized state in `appStore.ts`
-- Auth state, theme, location data, cached locations
-- Components access via `Alpine.store('app')`
+**Alpine.js Stores:**
+- Modular store architecture with separate concerns
+- `auth` store: Authentication state and token management
+- `data` store: Location and weather/solar data
+- `powerGen` store: Power generation calculator state
+- `ui` store: Theme, view toggles, error messages
+- Components access via `Alpine.store('auth')`, `Alpine.store('data')`, etc.
 
 **Constants** (no magic numbers):
 - Frontend: `AUTOCOMPLETE_DEBOUNCE_MS` (300), `CHART_RESIZE_DEBOUNCE_MS` (100), `POWER_ROUNDING_DECIMALS` (2)
