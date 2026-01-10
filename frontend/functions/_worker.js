@@ -54,6 +54,36 @@ export default {
       }
     }
     
+    // Handle asset requests and set correct Content-Type
+    if (url.pathname.startsWith('/assets/')) {
+      const assetRequest = new Request(request.url, {
+        method: request.method,
+        headers: request.headers,
+      });
+      
+      const response = await fetch(assetRequest);
+      
+      // Only modify headers if we got a successful response
+      if (response.ok) {
+        const newHeaders = new Headers(response.headers);
+        
+        // Set correct Content-Type based on file extension
+        if (url.pathname.endsWith('.js') || url.pathname.endsWith('.mjs')) {
+          newHeaders.set('Content-Type', 'application/javascript; charset=utf-8');
+        } else if (url.pathname.endsWith('.css')) {
+          newHeaders.set('Content-Type', 'text/css; charset=utf-8');
+        }
+        
+        return new Response(response.body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: newHeaders,
+        });
+      }
+      
+      return response;
+    }
+    
     // For all other requests, let Pages serve static files
     return fetch(request);
   }
