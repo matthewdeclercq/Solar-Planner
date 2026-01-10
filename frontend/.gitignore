@@ -1,0 +1,15 @@
+node_modules
+dist
+.DS_Store
+*.log
+
+# Cloudflare Pages Functions (generated files)
+functions/_routes.json
+functions/_worker.js
+
+# Vite cache
+.vite/
+
+# Build artifacts
+build/
+.cache/

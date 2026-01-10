@@ -2,10 +2,30 @@
   "name": "solar-planner-frontend",
   "version": "1.0.0",
   "description": "Solar Planner Frontend",
+  "type": "module",
   "scripts": {
-    "dev": "npx serve . -l 3000",
-    "start": "npx serve . -l 3000"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "vite preview",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix",
+    "format": "prettier --write src/**/*.ts"
   },
-  "devDependencies": {}
+  "dependencies": {
+    "alpinejs": "^3.13.5",
+    "chart.js": "^4.5.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@typescript-eslint/eslint-plugin": "^8.52.0",
+    "@typescript-eslint/parser": "^8.52.0",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4",
+    "prettier": "^3.7.4",
+    "typescript": "^5.3.3",
+    "typescript-eslint": "^8.52.0",
+    "vite": "^7.3.1"
+  }
 }
-

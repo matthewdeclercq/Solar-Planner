@@ -10,7 +10,8 @@ A web app for viewing historical weather data and peak sun hours for solar panel
   - Monthly optimal tilt (adjusted each month for maximum energy)
   - Yearly fixed optimal tilt (set to latitude angle)
   - Flat mount (0° tilt, horizontal)
-- **Interactive Charts**: Visualize data with graphs and tables
+- **Power Generation Calculator**: Estimate daily/monthly kWh output based on panel wattage
+- **Interactive Charts**: Visualize data with graphs and tables, including hourly power profiles
 - **Location Search**: Autocomplete with search history from cached locations
 - **Theme Toggle**: Switch between light and dark mode
 - **Caching**: Results cached for 30 days to minimize API calls
@@ -18,8 +19,8 @@ A web app for viewing historical weather data and peak sun hours for solar panel
 
 ## Tech Stack
 
-- **Frontend**: HTML, CSS, JavaScript with Chart.js
-- **Backend**: Cloudflare Worker
+- **Frontend**: TypeScript, Vite, Alpine.js, Chart.js v4
+- **Backend**: Cloudflare Worker (TypeScript)
 - **Data Source**: Visual Crossing Weather API
 - **Caching**: Cloudflare KV
 
@@ -28,45 +29,61 @@ A web app for viewing historical weather data and peak sun hours for solar panel
 ```
 Solar-Planner/
 ├── frontend/
-│   ├── index.html          # Main page
-│   ├── styles.css          # Styling
-│   ├── js/
-│   │   ├── app.js          # Main application logic
-│   │   ├── api.js          # API communication
-│   │   ├── auth.js         # Authentication
-│   │   ├── autocomplete.js # Location search
-│   │   ├── cache.js        # Cache management
-│   │   ├── charts.js       # Chart rendering
-│   │   ├── config.js       # Configuration
-│   │   ├── dom.js          # DOM references
-│   │   ├── login.js        # Login handling
-│   │   ├── results.js      # Results display
-│   │   ├── tables.js       # Table rendering
-│   │   ├── theme.js        # Theme toggle
-│   │   ├── ui.js           # UI utilities
-│   │   └── utils.js        # Utilities
+│   ├── index.html              # Main page with Alpine.js directives
+│   ├── styles.css              # Styling
+│   ├── vite.config.ts          # Vite build configuration
+│   ├── tsconfig.json           # TypeScript configuration
+│   ├── package.json            # Dependencies
+│   ├── src/
+│   │   ├── main.ts             # Entry point, Alpine.js initialization
+│   │   ├── components/
+│   │   │   ├── auth/           # Login form component
+│   │   │   ├── layout/         # Navigation component
+│   │   │   ├── search/         # Location search with autocomplete
+│   │   │   ├── results/        # Results display orchestration
+│   │   │   ├── charts/         # Chart rendering modules
+│   │   │   ├── tables/         # Table rendering modules
+│   │   │   └── powergen/       # Power generation calculator
+│   │   ├── services/           # API, auth, theme, DOM services
+│   │   ├── stores/             # Alpine.js store
+│   │   ├── types/              # TypeScript type definitions
+│   │   └── utils/              # Utility functions (HTML escaping, color conversion, Chart.js helpers)
 │   └── assets/
-│       └── CT_LOGO.webp    # Logo
+│       └── CT_LOGO.webp        # Logo
 ├── worker/
-│   ├── wrangler.toml       # Worker configuration
-│   ├── package.json        # Dependencies
+│   ├── wrangler.toml           # Worker configuration
+│   ├── tsconfig.json           # TypeScript configuration
+│   ├── package.json            # Dependencies
 │   └── src/
-│       └── index.js        # API logic
+│       ├── index.ts            # Main router
+│       ├── routes/             # API endpoint handlers
+│       ├── services/           # Auth, weather, solar, geocoding
+│       ├── middleware/         # CORS handling
+│       ├── utils/              # Helpers
+│       └── types/              # TypeScript interfaces
+├── CLAUDE.md                   # Development guidance
+├── UNUSED_CODE_ANALYSIS.md     # Analysis of unused code and exports
 └── README.md
 ```
 
 ## Prerequisites
 
-1. **Cloudflare Account**: Sign up at [cloudflare.com](https://cloudflare.com)
-2. **Visual Crossing API Key**: Get a free key at [visualcrossing.com](https://www.visualcrossing.com/weather-api)
-3. **Wrangler CLI**: Install with `npm install -g wrangler`
+1. **Node.js**: Version 18 or higher
+2. **Cloudflare Account**: Sign up at [cloudflare.com](https://cloudflare.com)
+3. **Visual Crossing API Key**: Get a free key at [visualcrossing.com](https://www.visualcrossing.com/weather-api)
+4. **Wrangler CLI**: Install with `npm install -g wrangler`
 
 ## Setup
 
 ### 1. Install Dependencies
 
 ```bash
-cd worker
+# Frontend
+cd frontend
+npm install
+
+# Worker
+cd ../worker
 npm install
 ```
 
@@ -106,10 +123,11 @@ Note your worker URL (e.g., `https://solar-planner-api.matthew-declercq.workers.
 
 1. Push code to GitHub
 2. Go to [Cloudflare Dashboard](https://dash.cloudflare.com) > **Pages** > **Create a project** > **Connect to Git**
-3. Set **Framework preset** to None and **Build output directory** to `frontend`
-4. Configure worker binding in project settings: **Functions** > **Workers** > Add binding with variable name `SOLAR_PLANNER_API` pointing to your worker
+3. Set **Framework preset** to Vite
+4. Set **Build command** to `cd frontend && npm run build`
+5. Set **Build output directory** to `frontend/dist`
 
-**Or deploy to any static host** (Netlify, Vercel, etc.) and update `API_URL` in `frontend/js/config.js` to your worker URL.
+**Or deploy to any static host** (Netlify, Vercel, etc.) and update `API_BASE` in `frontend/src/services/configService.ts` to your worker URL.
 
 ## Local Development
 
@@ -137,6 +155,15 @@ npm run dev
 ```
 
 Frontend runs at `http://localhost:3000` and automatically connects to the worker on port 8787.
+
+## Build
+
+```bash
+cd frontend
+npm run build
+```
+
+Production files are output to `frontend/dist/`.
 
 ## Environment Variables
 
@@ -274,13 +301,15 @@ Health check endpoint.
 
 **Location not found**: Check spelling, try adding state/country, or use coordinates.
 
-**CORS errors**: Ensure `API_URL` in `frontend/js/config.js` matches your worker URL.
+**CORS errors**: Ensure `API_BASE` in `frontend/src/services/configService.ts` matches your worker URL.
 
 **Empty or stale data**: Clear cache using the clear cache button in the app, or verify API key with `wrangler secret list`.
 
 **Login issues**: Verify `SITE_PASSWORD` is set correctly. Tokens expire after 24 hours.
 
 **Worker deployment fails**: Check `wrangler.toml` has correct KV namespace IDs and secrets are set.
+
+**Build errors**: Ensure Node.js 18+ is installed. Run `npm install` in both `frontend/` and `worker/` directories.
 
 ## License
 
@@ -290,4 +319,6 @@ MIT License
 
 - Weather data: [Visual Crossing Weather API](https://www.visualcrossing.com/)
 - Charts: [Chart.js](https://www.chartjs.org/)
+- UI Framework: [Alpine.js](https://alpinejs.dev/)
+- Build Tool: [Vite](https://vitejs.dev/)
 - Hosting: [Cloudflare](https://www.cloudflare.com/)

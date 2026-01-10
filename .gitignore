@@ -42,6 +42,16 @@ build/
 .wrangler/
 .wrangler.toml.local
 
+# Vite cache
+.vite/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Additional Cloudflare files
+*.r2
+
 # Logs
 *.log
 logs/

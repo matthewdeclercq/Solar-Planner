@@ -7,7 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Frontend
 ```bash
 cd frontend
-npm run dev      # Serve on http://localhost:3000
+npm run dev      # Vite dev server on http://localhost:3000
+npm run build    # Production build to dist/
 ```
 
 ### Worker (Cloudflare)
@@ -27,40 +28,87 @@ VISUAL_CROSSING_API_KEY=your-api-key
 
 ## Architecture
 
-**Stack**: Pure HTML/CSS/JS frontend + Cloudflare Worker backend + KV caching
+**Stack**: TypeScript + Vite + Alpine.js frontend + Cloudflare Worker (TypeScript) backend + KV caching
 
 ### Frontend (`frontend/`)
-ES6 modules with no build step. Key files:
-- `js/app.js` - Main orchestrator, event listeners, view toggle setup
-- `js/api.js` - Fetch wrapper with auth headers
-- `js/auth.js` - Token management (localStorage)
-- `js/config.js` - Environment-based API URL detection, shared constants
-- `js/dom.js` - Centralized DOM element references
-- `js/charts.js` - Chart.js integration (dynamic Y-axis scaling)
-- `js/chart-utils.js` - Shared chart utilities (theme defaults, safe destroy)
-- `js/autocomplete.js` - Location search with debouncing, section view toggle handlers
-- `js/theme.js` - Light/dark theme toggle (persisted to localStorage)
-- `js/login.js` - Login form setup and event handling
-- `js/results.js` - Results display orchestration, toggle visibility initialization
-- `js/tables.js` - Table rendering for weather, solar, and power generation data
-- `js/ui.js` - UI state management (loading, error, results display)
-- `js/cache.js` - Cache management functionality
-- `js/utils.js` - Utility functions (URL params, HTML escaping, color conversion)
-- `js/powergen.js` - Power generation calculator with monthly/hourly charts and table integration
+TypeScript with Vite build system and Alpine.js for reactive UI.
 
-### Worker (`worker/src/index.js`)
-Single file containing all backend logic (~640 lines):
-- Authentication: HMAC-SHA256 tokens with 24-hour expiry
-  - `requireAuth()` middleware for consistent auth validation
-  - `importHmacKey()` helper for crypto key setup
-- Solar calculations: Latitude-dependent tilt angle optimization with solar declination
-  - `parseLocationRequest()` - validates and extracts location
-  - `buildWeatherApiUrl()` - constructs API URL
-  - `enhanceResolvedAddress()` - reverse geocoding with Nominatim
-  - `processWeatherData()` - aggregates daily weather to monthly
-  - `processSolarData()` - calculates PSH with tilt optimizations
-- Caching: Cloudflare KV with 30-day TTL
-- CORS: Hardcoded allowed origins list
+**Entry Point:**
+- `src/main.ts` - Alpine.js initialization, component registration
+
+**Services (`src/services/`):**
+- `apiService.ts` - API calls (login, data, autocomplete, cache)
+- `authService.ts` - Token management (localStorage)
+- `configService.ts` - Environment-based API URL detection, constants
+- `domService.ts` - Typed DOM element accessors with caching
+- `themeService.ts` - Light/dark theme toggle (persisted)
+- `viewToggleService.ts` - Table/graph view toggles, solar graph toggles
+
+**Components (`src/components/`):**
+- `auth/loginForm.ts` - Login form component
+- `layout/nav.ts` - Navigation with theme toggle
+- `search/locationInput.ts` - Location search with autocomplete
+- `results/results.ts` - Results display orchestration
+- `charts/` - Chart rendering modules:
+  - `chartConfig.ts` - Shared chart options and utilities
+  - `weatherChart.ts` - Temperature/humidity chart
+  - `solarCharts.ts` - PSH and tilt angle charts
+  - `index.ts` - Chart module exports
+- `tables/` - Table rendering modules:
+  - `weatherTable.ts` - Weather data table
+  - `solarTable.ts` - Solar data table
+  - `powerGenTable.ts` - Power generation table
+  - `index.ts` - Table module exports
+- `powergen/` - Power generation calculator:
+  - `calculator.ts` - Pure calculation functions
+  - `charts.ts` - Monthly/hourly power charts
+  - `index.ts` - Module exports and event listeners
+
+**Stores (`src/stores/`):**
+- `appStore.ts` - Alpine.js store for centralized state
+
+**Types (`src/types/`):**
+- `api.ts` - Request/response interfaces
+- `weather.ts` - Weather data types
+- `solar.ts` - Solar calculation types
+- `powergen.ts` - Power generation types
+- `charts.ts` - Chart configuration types
+- `store.ts` - Alpine.js store types
+- `data.ts` - Combined location data types
+
+**Utilities (`src/utils/`):**
+- `index.ts` - URL params, HTML escaping, color conversion
+- `chartUtils.ts` - Chart.js defaults and safe destroy
+- `chartGlobal.ts` - Chart.js CDN availability check
+
+### Worker (`worker/src/`)
+Modular TypeScript architecture:
+
+**Entry Point:**
+- `index.ts` - Main router and request handling
+
+**Routes (`routes/`):**
+- `data.ts` - `/api/data` endpoint (weather + solar fetch)
+- `autocomplete.ts` - `/api/autocomplete` endpoint
+- `cache.ts` - `/api/cache/clear` and `/api/cache/list` endpoints
+
+**Services (`services/`):**
+- `auth.ts` - HMAC-SHA256 token generation/verification
+- `weather.ts` - Visual Crossing API integration
+- `solar.ts` - Solar geometry and PSH calculations
+- `geocoding.ts` - Nominatim forward/reverse geocoding
+
+**Middleware (`middleware/`):**
+- `cors.ts` - CORS header handling
+
+**Utilities (`utils/`):**
+- `math.ts` - Average and rounding helpers
+- `response.ts` - JSON response formatting
+- `cache.ts` - Cache key normalization
+- `validation.ts` - Input validation
+
+**Types (`types/`):**
+- `index.ts` - All TypeScript interfaces (Env, requests, responses, data)
 
 ### API Endpoints
 | Endpoint | Method | Auth | Purpose |
@@ -80,48 +128,45 @@ Single file containing all backend logic (~640 lines):
 5. Frontend renders tables and Chart.js visualizations
 
 ### Key Patterns
-- **Code Organization**:
-  - `dom.js` centralizes all `document.querySelector` calls to avoid duplication
-  - `chart-utils.js` provides shared Chart.js utilities (`updateChartDefaults`, `safeDestroyChart`)
-  - `config.js` auto-detects localhost vs production for API URL and defines shared constants
-  - Helper functions in worker break down complex logic into focused, testable units
 
-- **View Toggle System**:
-  - All sections (Weather, Solar, Power Gen) support Table/Graph toggle using `data-section` and `data-view` attributes
-  - Elements with `.view-content` class are automatically shown/hidden based on active view
-  - Solar section has secondary PSH/Tilt toggle (only visible in graph mode)
-  - Power Gen section has secondary Daily/Monthly toggle (only visible in graph mode)
-  - Toggle handlers in `autocomplete.js` manage chart resizing and sub-toggle visibility
-  - Hourly chart has independent visibility (not part of view toggle system)
+**Path Aliases (Vite/TypeScript):**
+- `@components/*` → `src/components/*`
+- `@services/*` → `src/services/*`
+- `@stores/*` → `src/stores/*`
+- `@types/*` → `src/types/*`
+- `@utils/*` → `src/utils/*`
 
-- **UI Structure Pattern**:
-  - Section header (with toggle buttons)
-  - Description label (visible in both table and graph views)
-  - Table container (`.view-content` with `data-view="table"`)
-  - Chart container (`.view-content` with `data-view="graph"`)
-  - Labels positioned above content for consistent UX
+**View Toggle System:**
+- All sections (Weather, Solar, Power Gen) support Table/Graph toggle
+- Uses `data-section` and `data-view` attributes
+- Elements with `.view-content` class are automatically shown/hidden
+- Solar section has secondary PSH/Tilt toggle (only visible in graph mode)
+- Power Gen section has secondary Daily/Monthly toggle (only visible in graph mode)
+- View toggle logic in `viewToggleService.ts`
 
-- **Constants** (no magic numbers):
-  - Frontend: `AUTOCOMPLETE_DEBOUNCE_MS` (300), `CHART_RESIZE_DEBOUNCE_MS` (100), `POWER_ROUNDING_DECIMALS` (2)
-  - Backend: `LATITUDE_BANDS`, `TILT_PENALTY_EXPONENT` (1.5), `NOMINATIM_USER_AGENT`, `AUTOCOMPLETE_LIMIT` (8)
+**Chart.js Integration:**
+- Chart.js loaded via CDN (global `Chart` object)
+- Vite configured with `external: ['chart.js']` for builds
+- `chartUtils.ts` manages theme-aware defaults
+- Charts re-render on theme change
 
-- **Performance Optimizations**:
-  - Array operations use single `reduce()` pass instead of multiple `map()` calls
-  - Chart data extracted in one iteration for better performance
+**Alpine.js Store:**
+- Centralized state in `appStore.ts`
+- Auth state, theme, location data, cached locations
+- Components access via `Alpine.store('app')`
 
-- **Table Rendering**:
-  - Weather: Monthly temp (high/low/mean) and humidity
-  - Solar: Tilt angles and PSH values for monthly optimal, yearly fixed, and flat (0°) configurations
-  - Power Gen: Daily and monthly kWh for all tilt methods, with annual totals in footer
+**Constants** (no magic numbers):
+- Frontend: `AUTOCOMPLETE_DEBOUNCE_MS` (300), `CHART_RESIZE_DEBOUNCE_MS` (100), `POWER_ROUNDING_DECIMALS` (2)
+- Backend: `LATITUDE_BANDS`, `TILT_PENALTY_EXPONENT` (1.5), `NOMINATIM_USER_AGENT`, `AUTOCOMPLETE_LIMIT` (8)
 
-- **Caching & Solar Calculations**:
-  - Worker caches by normalized location key (lowercase, underscores)
-  - Solar tilt calculations use latitude-dependent gain factors (defined in `LATITUDE_BANDS`):
-    - Equatorial (0-20°): 1.03-1.15x multiplier
-    - Mid-latitude (20-45°): 1.05-1.40x multiplier
-    - High-latitude (45-60°): 1.15-1.80x multiplier
-    - Polar (60°+): 1.20-2.20x multiplier
-    - Penalty curve uses cos^1.5 for steeper fixed tilt deviation cost
+**Solar Calculations:**
+- Worker caches by normalized location key (lowercase, underscores)
+- Latitude-dependent gain factors (defined in `LATITUDE_BANDS`):
+  - Equatorial (0-20°): 1.03-1.15x multiplier
+  - Mid-latitude (20-45°): 1.05-1.40x multiplier
+  - High-latitude (45-60°): 1.15-1.80x multiplier
+  - Polar (60°+): 1.20-2.20x multiplier
+  - Penalty curve uses cos^1.5 for steeper fixed tilt deviation cost
 
 ## Environment Variables (Worker)
 
