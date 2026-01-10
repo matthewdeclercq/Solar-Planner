@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
+import { copyFileSync } from 'fs';
 
 export default defineConfig({
   root: '.',
@@ -13,6 +14,17 @@ export default defineConfig({
       },
     },
   },
+  plugins: [
+    {
+      name: 'copy-headers',
+      closeBundle() {
+        copyFileSync(
+          resolve(__dirname, '_headers'),
+          resolve(__dirname, 'dist', '_headers')
+        );
+      },
+    },
+  ],
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
