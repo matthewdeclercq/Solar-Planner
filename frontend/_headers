@@ -1,0 +1,20 @@
+# Cloudflare Pages Headers Configuration
+# Set correct MIME types for static assets
+/assets/*.js
+  Content-Type: application/javascript
+
+/assets/*.css
+  Content-Type: text/css
+
+/assets/*.webp
+  Content-Type: image/webp
+
+/assets/*.png
+  Content-Type: image/png
+
+/assets/*.ico
+  Content-Type: image/x-icon
+
+# Update CSP to allow Cloudflare beacon script
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' http://localhost:8787 https://solar-planner-api.matthew-declercq.workers.dev https://*.workers.dev; base-uri 'self'; form-action 'self';
