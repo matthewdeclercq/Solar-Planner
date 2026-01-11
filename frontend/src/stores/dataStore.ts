@@ -12,6 +12,8 @@ export interface DataStore {
   locationData: LocationDataResponse | null;
   autocompleteSuggestions: AutocompleteSuggestion[];
   cachedLocations: AutocompleteSuggestion[];
+  cacheLoadingStatus: 'idle' | 'loading' | 'loaded';
+  cacheLoadPromise: Promise<void> | null;
   setLocationData(data: LocationDataResponse | null): void;
   setAutocompleteSuggestions(suggestions: AutocompleteSuggestion[]): void;
   setCachedLocations(locations: AutocompleteSuggestion[]): void;
@@ -26,6 +28,8 @@ export function initDataStore(): void {
     locationData: null as LocationDataResponse | null,
     autocompleteSuggestions: [] as AutocompleteSuggestion[],
     cachedLocations: [] as AutocompleteSuggestion[],
+    cacheLoadingStatus: 'idle' as 'idle' | 'loading' | 'loaded',
+    cacheLoadPromise: null as Promise<void> | null,
 
     setLocationData(data: LocationDataResponse | null): void {
       this.locationData = data;

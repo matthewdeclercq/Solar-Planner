@@ -34,26 +34,55 @@ export function locationInputComponent() {
     },
 
     async loadCachedLocations() {
-      try {
-        const response = await fetchCachedLocations();
-        const dataStore = Alpine.store('data') as {
-          setCachedLocations?: (locations: unknown[]) => void;
-        };
-        if (dataStore?.setCachedLocations) {
-          dataStore.setCachedLocations(
-            response.locations.map((loc) => ({
-              display: loc.location,
-              value: loc.location,
-              apiLocation: loc.originalSearch || `${loc.latitude},${loc.longitude}`,
-              lat: loc.latitude,
-              lon: loc.longitude,
-            }))
-          );
-        }
-      } catch (error) {
-        logger.error('Failed to load cached locations', error);
-        // Silently fail - cached locations are not critical for app functionality
+      const dataStore = Alpine.store('data') as {
+        setCachedLocations?: (locations: unknown[]) => void;
+        cacheLoadingStatus?: 'idle' | 'loading' | 'loaded';
+        cacheLoadPromise?: Promise<void> | null;
+      };
+
+      // Prevent duplicate loads
+      if (dataStore.cacheLoadingStatus === 'loading' || dataStore.cacheLoadingStatus === 'loaded') {
+        return;
       }
+
+      // Set loading status
+      if (dataStore.cacheLoadingStatus !== undefined) {
+        dataStore.cacheLoadingStatus = 'loading';
+      }
+
+      // Create and store the promise
+      const loadPromise = (async () => {
+        try {
+          const response = await fetchCachedLocations();
+          if (dataStore?.setCachedLocations) {
+            dataStore.setCachedLocations(
+              response.locations.map((loc) => ({
+                display: loc.location,
+                value: loc.location,
+                apiLocation: loc.originalSearch || `${loc.latitude},${loc.longitude}`,
+                lat: loc.latitude,
+                lon: loc.longitude,
+              }))
+            );
+          }
+          if (dataStore.cacheLoadingStatus !== undefined) {
+            dataStore.cacheLoadingStatus = 'loaded';
+          }
+        } catch (error) {
+          logger.error('Failed to load cached locations', error);
+          // Mark as loaded even on error to prevent infinite retries
+          if (dataStore.cacheLoadingStatus !== undefined) {
+            dataStore.cacheLoadingStatus = 'loaded';
+          }
+        }
+      })();
+
+      // Store promise for awaiting
+      if (dataStore.cacheLoadPromise !== undefined) {
+        dataStore.cacheLoadPromise = loadPromise;
+      }
+
+      await loadPromise;
     },
 
     async search() {
@@ -88,8 +117,18 @@ export function locationInputComponent() {
       }, AUTOCOMPLETE_DEBOUNCE_MS);
     },
 
-    showCachedLocations() {
-      const dataStore = Alpine.store('data') as { cachedLocations?: unknown[] };
+    async showCachedLocations() {
+      const dataStore = Alpine.store('data') as {
+        cachedLocations?: unknown[];
+        cacheLoadingStatus?: 'idle' | 'loading' | 'loaded';
+        cacheLoadPromise?: Promise<void> | null;
+      };
+
+      // If cache is still loading, wait for it
+      if (dataStore?.cacheLoadingStatus === 'loading' && dataStore?.cacheLoadPromise) {
+        await dataStore.cacheLoadPromise;
+      }
+
       const cached = (dataStore?.cachedLocations || []) as Array<{
         display: string;
         value: string;
